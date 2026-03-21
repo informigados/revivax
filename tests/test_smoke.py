@@ -220,9 +220,11 @@ def test_api_scan_recover_and_export_smoke(tmp_path, monkeypatch):
         assert results_payload["total"] == 2
         assert {item["extension"] for item in results_payload["results"]} == {"jpg", "png"}
 
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
         recover_response = client.post(
             "/api/recover/start",
-            json={"indices": [0, 1], "output_dir": str(tmp_path / "output")},
+            json={"indices": [0, 1], "output_dir": str(output_dir)},
         )
         assert recover_response.status_code == 200
         assert recover_response.get_json()["success"] is True

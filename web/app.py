@@ -17,8 +17,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from flask import Flask, Response, render_template, jsonify, request, send_file
+from flask import Flask, Response, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import safe_join
 
 # Adiciona raiz ao path para importar core
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -142,6 +143,7 @@ API_TRANSLATIONS = {
         'recover.no_scan_results': 'Nenhum resultado de varredura disponível.',
         'recover.no_selection': 'Nenhum arquivo selecionado para recuperação.',
         'recover.invalid_output_dir': 'Diretório de saída inválido.',
+        'recover.output_dir_missing': 'O diretório de saída precisa existir.',
         'recover.protected_output_dir': 'O diretório escolhido é protegido pelo sistema. Escolha outro local.',
         'recover.restricted_output_dir': 'Diretório de saída restrito por segurança.',
         'recover.internal_failure': 'Falha interna (STAB-01): {message}',
@@ -182,6 +184,7 @@ API_TRANSLATIONS = {
         'recover.no_scan_results': 'No scan results available.',
         'recover.no_selection': 'No files selected for recovery.',
         'recover.invalid_output_dir': 'Invalid output directory.',
+        'recover.output_dir_missing': 'The output directory must already exist.',
         'recover.protected_output_dir': 'The selected directory is protected by the system. Choose another location.',
         'recover.restricted_output_dir': 'Output directory restricted for security reasons.',
         'recover.internal_failure': 'Internal failure (STAB-01): {message}',
@@ -222,6 +225,7 @@ API_TRANSLATIONS = {
         'recover.no_scan_results': 'Nenhum resultado de análise disponível.',
         'recover.no_selection': 'Nenhum ficheiro selecionado para recuperação.',
         'recover.invalid_output_dir': 'Diretório de saída inválido.',
+        'recover.output_dir_missing': 'O diretório de saída tem de existir.',
         'recover.protected_output_dir': 'O diretório selecionado está protegido pelo sistema. Escolha outro local.',
         'recover.restricted_output_dir': 'Diretório de saída restrito por segurança.',
         'recover.internal_failure': 'Falha interna (STAB-01): {message}',
@@ -262,6 +266,7 @@ API_TRANSLATIONS = {
         'recover.no_scan_results': 'No hay resultados de escaneo disponibles.',
         'recover.no_selection': 'No se seleccionaron archivos para recuperar.',
         'recover.invalid_output_dir': 'Directorio de salida no válido.',
+        'recover.output_dir_missing': 'El directorio de salida debe existir.',
         'recover.protected_output_dir': 'El directorio seleccionado está protegido por el sistema. Elija otra ubicación.',
         'recover.restricted_output_dir': 'Directorio de salida restringido por seguridad.',
         'recover.internal_failure': 'Fallo interno (STAB-01): {message}',
@@ -380,14 +385,12 @@ def _resolve_path_safe(path: Path) -> Path:
         raise ValueError("invalid path") from exc
 
 
-def _safe_child_path(root: Path, leaf_name: str) -> Optional[Path]:
+def _safe_child_str_path(root: Path, leaf_name: str) -> Optional[str]:
     if not leaf_name or Path(leaf_name).name != leaf_name:
         return None
     try:
         root_resolved = _resolve_path_safe(root)
-        candidate = _resolve_path_safe(root_resolved / leaf_name)
-        candidate.relative_to(root_resolved)
-        return candidate
+        return safe_join(os.fspath(root_resolved), leaf_name)
     except (ValueError, RuntimeError, OSError):
         return None
 
@@ -902,8 +905,10 @@ def start_recovery():
             if _is_restricted_output_dir(out):
                 error_key = 'recover.protected_output_dir' if os.name == 'nt' else 'recover.restricted_output_dir'
                 return jsonify({'success': False, 'error': _api_t(error_key, lang=recover_lang)}), 403
-                    
-            out.mkdir(parents=True, exist_ok=True)
+
+            if not out.exists() or not out.is_dir():
+                return jsonify({'success': False, 'error': _api_t('recover.output_dir_missing', lang=recover_lang)}), 400
+
             recovery_manager.carver.output_dir = out
 
         def _do_recovery():
@@ -1017,12 +1022,12 @@ def delete_log():
         data     = request.get_json(force=True, silent=True) or {}
         filename = (data.get('filename') or '').strip()
         logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
-        log_path = _safe_child_path(logs_dir, filename)
-        if log_path is None:
+        safe_log_path = _safe_child_str_path(logs_dir, filename)
+        if safe_log_path is None:
             return jsonify({'success': False, 'error': _api_t('logs.invalid_filename')}), 400
-        if not log_path.exists() or not log_path.is_file():
+        if not os.path.isfile(safe_log_path):
             return jsonify({'success': False, 'error': _api_t('logs.not_found')}), 404
-        log_path.unlink()
+        os.remove(safe_log_path)
         logger.info("Log excluído: %s", filename)
         return jsonify({'success': True})
     except Exception as exc:
@@ -1154,12 +1159,17 @@ def download_file(filename: str):
     try:
         # Sanitização: apenas nome de arquivo, sem diretórios
         logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
-        filepath = _safe_child_path(logs_dir, filename)
-        if filepath is None:
+        safe_filename = filename.strip()
+        safe_log_path = _safe_child_str_path(logs_dir, safe_filename)
+        if safe_log_path is None:
             return jsonify({'success': False, 'error': _api_t('download.invalid_filename')}), 400
-        if not filepath.exists() or not filepath.is_file():
+        if not os.path.isfile(safe_log_path):
             return jsonify({'success': False, 'error': _api_t('download.not_found')}), 404
-        return send_file(filepath, as_attachment=True)
+        return send_from_directory(
+            os.fspath(_resolve_path_safe(logs_dir)),
+            safe_filename,
+            as_attachment=True,
+        )
     except Exception as exc:
         return _internal_error_response("Erro no download de arquivo", exc)
 

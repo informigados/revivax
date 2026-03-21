@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="pt-BR" id="html-root">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RevivaX - Recuperação de Arquivos</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/revivax-icon.svg') }}" />
+    <script src="{{ url_for('static', filename='vendor/tailwindcss/tailwindcdn.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: "#0ea5e9",
+              secondary: "#6366f1",
+              accent: "#8b5cf6",
+              dark: "#0f172a",
+              darker: "#020617",
+              success: "#10b981",
+              warning: "#f59e0b",
+              danger: "#ef4444",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body { font-family: Aptos, "Segoe UI Variable", "Segoe UI", sans-serif; }
+      .glass { background: rgba(15,23,42,0.8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+      .gradient-text { background: linear-gradient(135deg,#0ea5e9,#8b5cf6); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+      .progress-bar-initial { width:0%; }
+      .card-hover { transition:all 0.3s ease; }
+      .card-hover:hover { transform:translateY(-2px); box-shadow:0 20px 40px rgba(0,0,0,.3); }
+      .progress-bar { transition:width 0.5s ease; }
+      .pulse { animation:pulse 2s infinite; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+      .slide-in { animation:slideIn 0.3s ease; }
+      @keyframes slideIn { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+      .fa-spin-slow { animation:fa-spin 2s infinite linear; }
+      .status-dot { width:8px;height:8px;border-radius:50%;display:inline-block; }
+      .status-healthy { background:#10b981;box-shadow:0 0 8px #10b981; }
+      .status-warning { background:#f59e0b;box-shadow:0 0 8px #f59e0b; }
+      .status-critical { background:#ef4444;box-shadow:0 0 8px #ef4444; }
+      .status-unknown { background:#6b7280; }
+      ::-webkit-scrollbar { width:8px;height:8px; }
+      ::-webkit-scrollbar-track { background:#0f172a; }
+      ::-webkit-scrollbar-thumb { background:#334155;border-radius:4px; }
+      ::-webkit-scrollbar-thumb:hover { background:#475569; }
+      /* SMART circular gauge */
+      .gauge-ring { transform:rotate(-90deg);transform-origin:50% 50%; }
+      /* Language dropdown */
+      .lang-dropdown { position:relative; }
+      .lang-menu { display:none;position:absolute;right:0;top:calc(100%+8px);background:#0f172a;border:1px solid #1e293b;border-radius:8px;min-width:160px;z-index:60;overflow:hidden; }
+      .lang-menu.open { display:block; }
+      .lang-menu button { width:100%;text-align:left;padding:8px 14px;font-size:13px;color:#cbd5e1; transition:background 0.15s; }
+      .lang-menu button:hover { background:#1e293b; }
+      .lang-menu button.active { color:#0ea5e9; font-weight:600; }
+      /* Scan running indicator in nav */
+      .scan-badge { animation:pulseBadge 1.5s ease-in-out infinite; }
+      @keyframes pulseBadge { 0%,100%{opacity:1} 50%{opacity:.5} }
+      .scan-indicator-desktop.is-visible { display: none; }
+      .scan-indicator-mobile.is-visible { display: inline-flex; }
+      @media (min-width: 1280px) {
+        .scan-indicator-desktop.is-visible { display: flex; }
+        .scan-indicator-mobile.is-visible { display: none; }
+      }
+      .brand-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.22), transparent 46%),
+          linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92));
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,0.05),
+          0 10px 24px rgba(14, 165, 233, 0.16);
+      }
+      .brand-mark img {
+        width: 30px;
+        height: 30px;
+        filter: drop-shadow(0 0 10px rgba(14, 165, 233, 0.22));
+      }
+      .brand-mark-lg {
+        width: 80px;
+        height: 80px;
+        border-radius: 22px;
+      }
+      .brand-mark-lg img {
+        width: 50px;
+        height: 50px;
+      }
+      .mobile-nav-panel {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease;
+      }
+      .mobile-nav-panel.open {
+        max-height: 24rem;
+      }
+      .scan-results-table {
+        min-width: 720px;
+      }
+      @media (max-width: 767px) {
+        .dashboard-scan-banner-stack {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-darker text-gray-100 min-h-screen">
+
+    <!-- Navbar -->
+    <nav class="glass fixed top-0 left-0 right-0 z-50 border-b border-gray-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16 gap-3">
+          <!-- Logo -->
+          <div class="flex items-center space-x-3 min-w-0">
+            <div class="brand-mark flex-shrink-0">
+              <img src="{{ url_for('static', filename='images/revivax-icon.svg') }}" alt="RevivaX" />
+            </div>
+            <span class="text-xl font-bold gradient-text truncate">RevivaX</span>
+          </div>
+
+          <!-- Nav items + scan indicator + language -->
+          <div class="hidden xl:flex items-center space-x-2">
+            <button onclick="showSection('dashboard')" class="nav-btn px-3 py-2 rounded-lg hover:bg-gray-800 transition text-sm" data-section="dashboard">
+              <i class="fas fa-chart-pie mr-1.5"></i><span data-i18n="nav.dashboard">Dashboard</span>
+            </button>
+            <button onclick="showSection('recovery')" class="nav-btn px-3 py-2 rounded-lg hover:bg-gray-800 transition text-sm" data-section="recovery">
+              <i class="fas fa-magnifying-glass mr-1.5"></i><span data-i18n="nav.recovery">Recuperação</span>
+            </button>
+            <button onclick="showSection('smart')" class="nav-btn px-3 py-2 rounded-lg hover:bg-gray-800 transition text-sm" data-section="smart">
+              <i class="fas fa-hard-drive mr-1.5"></i><span data-i18n="nav.smart">SMART</span>
+            </button>
+            <button onclick="showSection('logs')" class="nav-btn px-3 py-2 rounded-lg hover:bg-gray-800 transition text-sm" data-section="logs">
+              <i class="fas fa-file-lines mr-1.5"></i><span data-i18n="nav.logs">Logs</span>
+            </button>
+            <button onclick="showSection('about')" class="nav-btn px-3 py-2 rounded-lg hover:bg-gray-800 transition text-sm" data-section="about">
+              <i class="fas fa-circle-info mr-1.5"></i><span data-i18n="nav.about">Sobre</span>
+            </button>
+
+            <!-- Scan running indicator (hidden when idle) -->
+            <div data-scan-indicator="desktop" class="scan-indicator-desktop hidden items-center gap-2 px-3 py-1.5 bg-primary/15 border border-primary/30 rounded-lg text-xs text-primary font-medium cursor-pointer scan-badge" onclick="showSection('recovery')">
+              <i data-scan-indicator-icon class="fas fa-spinner fa-spin text-xs"></i>
+              <span data-scan-indicator-label data-i18n="nav.scanning">Varrendo...</span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <div data-scan-indicator="mobile" class="scan-indicator-mobile hidden items-center justify-center px-2.5 py-1.5 bg-primary/15 border border-primary/30 rounded-lg text-xs text-primary font-medium cursor-pointer scan-badge" onclick="showSection('recovery')">
+              <i data-scan-indicator-icon class="fas fa-spinner fa-spin text-xs"></i>
+            </div>
+
+            <!-- Language dropdown -->
+            <div class="lang-dropdown">
+              <button id="lang-btn" onclick="toggleLangMenu()" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 hover:bg-gray-800 transition text-sm">
+                <span id="lang-flag">🇧🇷</span>
+                <span id="lang-code" class="hidden sm:inline font-medium">PT-BR</span>
+                <i class="fas fa-chevron-down text-xs text-gray-500"></i>
+              </button>
+              <div id="lang-menu" class="lang-menu">
+                <button onclick="setLanguage('pt-BR', this)" class="active"><span class="mr-2">🇧🇷</span>Português (Brasil)</button>
+                <button onclick="setLanguage('pt-PT', this)"><span class="mr-2">🇵🇹</span>Português (Portugal)</button>
+                <button onclick="setLanguage('en', this)"><span class="mr-2">🇺🇸</span>English</button>
+                <button onclick="setLanguage('es', this)"><span class="mr-2">🇪🇸</span>Español</button>
+              </div>
+            </div>
+
+            <button id="mobile-nav-toggle" onclick="toggleMobileNav(event)" class="xl:hidden w-11 h-11 rounded-xl border border-gray-700 hover:bg-gray-800 transition flex items-center justify-center text-gray-200" aria-label="Toggle navigation" aria-expanded="false">
+              <i class="fas fa-bars"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="mobile-nav-panel" class="mobile-nav-panel xl:hidden border-t border-gray-800">
+          <div class="py-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button onclick="showSection('dashboard')" class="nav-btn w-full px-4 py-3 rounded-xl hover:bg-gray-800 transition text-sm text-left" data-section="dashboard">
+              <i class="fas fa-chart-pie mr-2"></i><span data-i18n="nav.dashboard">Dashboard</span>
+            </button>
+            <button onclick="showSection('recovery')" class="nav-btn w-full px-4 py-3 rounded-xl hover:bg-gray-800 transition text-sm text-left" data-section="recovery">
+              <i class="fas fa-magnifying-glass mr-2"></i><span data-i18n="nav.recovery">Recuperação</span>
+            </button>
+            <button onclick="showSection('smart')" class="nav-btn w-full px-4 py-3 rounded-xl hover:bg-gray-800 transition text-sm text-left" data-section="smart">
+              <i class="fas fa-hard-drive mr-2"></i><span data-i18n="nav.smart">SMART</span>
+            </button>
+            <button onclick="showSection('logs')" class="nav-btn w-full px-4 py-3 rounded-xl hover:bg-gray-800 transition text-sm text-left" data-section="logs">
+              <i class="fas fa-file-lines mr-2"></i><span data-i18n="nav.logs">Logs</span>
+            </button>
+            <button onclick="showSection('about')" class="nav-btn w-full px-4 py-3 rounded-xl hover:bg-gray-800 transition text-sm text-left sm:col-span-2" data-section="about">
+              <i class="fas fa-circle-info mr-2"></i><span data-i18n="nav.about">Sobre</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-20 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+
+      <!-- ── Dashboard ────────────────────────────────── -->
+      <section id="dashboard-section" class="section">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold mb-2" data-i18n="dashboard.title">Dashboard</h1>
+          <p class="text-gray-400" data-i18n="dashboard.subtitle">Visão geral do sistema e estatísticas</p>
+        </div>
+
+        <!-- Active scan banner (shown only when scanning) -->
+        <div id="dashboard-scan-banner" class="hidden mb-6 p-4 bg-primary/10 border border-primary/30 rounded-xl flex items-center justify-between gap-4 dashboard-scan-banner-stack">
+          <div class="flex items-center gap-4">
+            <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center" id="dashboard-scan-icon-container">
+              <i class="fas fa-magnifying-glass text-primary text-lg fa-spin-slow" id="dashboard-scan-icon"></i>
+            </div>
+            <div>
+              <div class="font-semibold text-primary" id="dashboard-scan-title" data-i18n="dashboard.scanRunning">Varredura em andamento</div>
+              <div id="dashboard-scan-msg" class="text-sm text-gray-400 mt-0.5" data-i18n="common.starting">Iniciando...</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div id="dashboard-scan-pct" class="text-2xl font-bold text-primary">0%</div>
+            <button id="dashboard-scan-btn" onclick="showSection('recovery')" class="px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg text-sm transition font-medium">
+              <i class="fas fa-arrow-right mr-1"></i><span data-i18n="dashboard.viewDetails">Ver detalhes</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div class="bg-dark rounded-xl p-6 border border-gray-800 card-hover">
+            <div class="flex items-center justify-between mb-4">
+              <div class="w-12 h-12 bg-primary/20 rounded-lg flex items-center justify-center">
+                <i class="fas fa-hard-drive text-primary text-xl"></i>
+              </div>
+              <span class="text-xs text-gray-500" data-i18n="stats.total">Total</span>
+            </div>
+            <h3 class="text-2xl font-bold" id="total-drives">-</h3>
+            <p class="text-sm text-gray-400" data-i18n="dashboard.drivesDetected">Drives detectados</p>
+          </div>
+
+          <div class="bg-dark rounded-xl p-6 border border-gray-800 card-hover">
+            <div class="flex items-center justify-between mb-4">
+              <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                <i class="fas fa-check-circle text-success text-xl"></i>
+              </div>
+              <span class="text-xs text-gray-500" data-i18n="stats.healthy">Saudáveis</span>
+            </div>
+            <h3 class="text-2xl font-bold" id="healthy-drives">-</h3>
+            <p class="text-sm text-gray-400" data-i18n="dashboard.drivesOk">Drives em bom estado</p>
+          </div>
+
+          <div class="bg-dark rounded-xl p-6 border border-gray-800 card-hover">
+            <div class="flex items-center justify-between mb-4">
+              <div class="w-12 h-12 bg-warning/20 rounded-lg flex items-center justify-center">
+                <i class="fas fa-exclamation-triangle text-warning text-xl"></i>
+              </div>
+              <span class="text-xs text-gray-500" data-i18n="stats.alert">Alerta</span>
+            </div>
+            <h3 class="text-2xl font-bold" id="warning-drives">-</h3>
+            <p class="text-sm text-gray-400" data-i18n="dashboard.drivesAlert">Drives com alertas</p>
+          </div>
+
+          <div class="bg-dark rounded-xl p-6 border border-gray-800 card-hover">
+            <div class="flex items-center justify-between mb-4">
+              <div class="w-12 h-12 bg-accent/20 rounded-lg flex items-center justify-center">
+                <i class="fas fa-file-arrow-up text-accent text-xl"></i>
+              </div>
+              <span class="text-xs text-gray-500" data-i18n="stats.recovered">Recuperados</span>
+            </div>
+            <h3 class="text-2xl font-bold" id="recovered-files">-</h3>
+            <p class="text-sm text-gray-400" data-i18n="dashboard.filesRecovered">Arquivos recuperados</p>
+          </div>
+        </div>
+
+        <!-- Quick Actions + Status -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-dark rounded-xl p-6 border border-gray-800">
+            <h3 class="text-lg font-semibold mb-4" data-i18n="dashboard.quickActions">Ações Rápidas</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <button onclick="prepareNewScan()" class="p-4 bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded-lg transition text-left">
+                <i class="fas fa-magnifying-glass text-primary text-2xl mb-2"></i>
+                <h4 class="font-medium" data-i18n="actions.newScan">Nova Varredura</h4>
+                <p class="text-sm text-gray-400" data-i18n="actions.startRecovery">Iniciar recuperação</p>
+              </button>
+              <button onclick="showSection('smart')" class="p-4 bg-success/10 hover:bg-success/20 border border-success/30 rounded-lg transition text-left">
+                <i class="fas fa-heartbeat text-success text-2xl mb-2"></i>
+                <h4 class="font-medium" data-i18n="actions.checkSmart">Verificar SMART</h4>
+                <p class="text-sm text-gray-400" data-i18n="actions.diskHealth">Saúde dos discos</p>
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-dark rounded-xl p-6 border border-gray-800">
+            <h3 class="text-lg font-semibold mb-4" data-i18n="dashboard.systemStatus">Status do Sistema</h3>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                <span class="text-gray-400" data-i18n="system.smartMonitor">Monitor SMART</span>
+                <span id="smart-status" class="px-2 py-1 rounded text-xs font-medium" data-i18n="system.checking">Verificando...</span>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                <span class="text-gray-400" data-i18n="system.mode">Modo de Operação</span>
+                <span class="px-2 py-1 bg-success/20 text-success rounded text-xs font-medium" data-i18n="system.readOnly">Somente Leitura</span>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                <span class="text-gray-400" data-i18n="system.version">Versão</span>
+                <span class="text-gray-300">1.0.0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Recovery ────────────────────────────────── -->
+      <section id="recovery-section" class="section hidden">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold mb-2" data-i18n="recovery.title">Recuperação de Arquivos</h1>
+          <p class="text-gray-400" data-i18n="recovery.subtitle">Varredura profunda e recuperação de dados</p>
+        </div>
+
+        <!-- Scan Configuration -->
+        <div class="bg-dark rounded-xl p-6 border border-gray-800 mb-6">
+          <h3 class="text-lg font-semibold mb-4" data-i18n="recovery.config">Configuração da Varredura</h3>
+
+          <!-- Source mode toggle -->
+          <div class="flex flex-col xl:flex-row xl:items-start gap-3 mb-4">
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span class="text-sm text-gray-400" data-i18n="recovery.source">Origem:</span>
+              <div class="flex rounded-lg overflow-hidden border border-gray-700">
+                <button id="src-btn-drive" onclick="setScanSource('drive')"
+                  class="px-4 py-1.5 text-sm font-medium bg-primary/20 text-primary transition">
+                  <i class="fas fa-hard-drive mr-1"></i><span data-i18n="recovery.sourceDrive">Drive</span>
+                </button>
+                <button id="src-btn-folder" onclick="setScanSource('folder')"
+                  class="px-4 py-1.5 text-sm font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition">
+                  <i class="fas fa-folder-open mr-1"></i><span data-i18n="recovery.sourceFolder">Pasta</span>
+                </button>
+              </div>
+            </div>
+            <div id="folder-scan-note" class="hidden xl:flex-1 rounded-lg border border-gray-700 bg-gray-800/70 px-3 py-3">
+              <div id="folder-scan-note-title" class="text-sm font-semibold text-primary"></div>
+              <p id="folder-scan-note-body" class="mt-1 text-xs text-gray-300"></p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            <!-- Drive selector (default) -->
+            <div id="src-drive-panel" class="sm:col-span-2 xl:col-span-1">
+              <label class="block text-sm text-gray-400 mb-2" data-i18n="recovery.drive">Drive</label>
+              <select id="scan-drive" title="Selecionar drive para varredura"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-primary">
+                <option value="" data-i18n="recovery.selectDrive">Selecione um drive...</option>
+              </select>
+            </div>
+            <!-- Folder path input (hidden by default) -->
+            <div id="src-folder-panel" class="hidden sm:col-span-2 xl:col-span-1">
+              <label class="block text-sm text-gray-400 mb-2" data-i18n="recovery.folderPath">Caminho da pasta</label>
+              <div class="flex gap-2">
+                <input id="scan-folder-path" type="text" placeholder="Ex: C:\\Users\\Fulano\\Documentos"
+                  class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-primary text-sm font-mono"
+                />
+                <button id="browse-folder-btn" onclick="browseFolderNative()" title="Selecionar pasta"
+                  class="px-3 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg text-sm transition flex-shrink-0">
+                  <i class="fas fa-folder-open"></i>
+                </button>
+              </div>
+            </div>
+            <input type="hidden" id="scan-source" value="drive">
+            <div>
+              <label class="block text-sm text-gray-400 mb-2" data-i18n="recovery.mode">Modo</label>
+              <select id="scan-mode" title="Selecionar modo de varredura"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-primary">
+                <option value="quick" data-i18n="recovery.quick">Varredura Rápida</option>
+                <option value="deep" data-i18n="recovery.deep">Varredura Profunda</option>
+              </select>
+            </div>
+            <div class="flex items-end sm:col-span-2 xl:col-span-1">
+              <button onclick="startScan()" id="start-scan-btn"
+                class="w-full bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-medium py-2 px-4 rounded-lg transition">
+                <i class="fas fa-play mr-2"></i><span data-i18n="recovery.start">Iniciar Varredura</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- File Type Filter -->
+          <div class="mt-4">
+            <label class="block text-sm text-gray-400 mb-2" data-i18n="recovery.fileTypes">Tipos de Arquivo</label>
+            <div id="file-types-container" class="flex flex-wrap gap-2">
+              <span class="text-gray-500 text-sm" data-i18n="common.loading">Carregando...</span>
+            </div>
+          </div>
+
+          <!-- Estimativa -->
+          <div id="estimate-container" class="mt-4 p-4 bg-gray-800/50 rounded-lg hidden">
+            <div class="flex items-center justify-between">
+              <div>
+                <h4 class="font-medium" data-i18n="recovery.estimate">Estimativa de Recuperação</h4>
+                <p id="estimate-text" class="text-sm text-gray-400"></p>
+              </div>
+              <div id="estimate-badge" class="px-3 py-1 rounded-full text-sm font-medium"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        <div id="scan-progress" class="bg-dark rounded-xl p-6 border border-gray-800 mb-6 hidden">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold" data-i18n="recovery.progress">Progresso da Varredura</h3>
+            <div class="flex space-x-2">
+              <button onclick="pauseScan()" id="pause-btn"
+                class="px-3 py-1 bg-warning/20 text-warning rounded-lg text-sm hover:bg-warning/30 transition">
+                <i class="fas fa-pause mr-1"></i><span data-i18n="recovery.pause">Pausar</span>
+              </button>
+              <button onclick="stopScan()"
+                id="stop-btn"
+                class="px-3 py-1 bg-danger/20 text-danger rounded-lg text-sm hover:bg-danger/30 transition">
+                <i class="fas fa-stop mr-1"></i><span data-i18n="recovery.stop">Parar</span>
+              </button>
+            </div>
+          </div>
+          <div class="mb-2">
+            <div class="flex justify-between text-sm mb-1 mt-2">
+              <span id="progress-message" class="text-gray-400 font-medium" data-i18n="common.starting">Iniciando...</span>
+              <span id="progress-percent" class="text-primary font-bold">0%</span>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-3 overflow-hidden shadow-inner">
+              <div id="progress-bar"
+                class="bg-gradient-to-r from-primary to-secondary h-3 rounded-full transition-all duration-300 ease-out progress-bar-initial relative overflow-hidden">
+                <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div id="scan-results" class="bg-dark rounded-xl border border-gray-800 hidden">
+          <div class="p-6 border-b border-gray-800">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 class="text-lg font-semibold" data-i18n="recovery.found">Arquivos Encontrados</h3>
+                <p id="scan-results-meta" class="text-sm text-gray-400 mt-1 hidden"></p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" id="btn-select-page" onclick="togglePageSelection()" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition" data-i18n="recovery.selectPage">Selecionar página</button>
+                <button type="button" id="btn-select-all-results" onclick="toggleAllFilteredFiles()" class="px-3 py-1 bg-primary/20 text-primary hover:bg-primary/30 rounded-lg text-sm transition" data-i18n="recovery.selectAll">Selecionar todos</button>
+                <div class="relative">
+                  <button type="button" id="results-filter-toggle" onclick="toggleResultsMenu(event)" aria-expanded="false" aria-controls="results-filter-menu" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition flex items-center">
+                    <i class="fas fa-filter mr-1"></i><span data-i18n="recovery.filter">Filtrar & Ordenar</span>
+                    <i class="fas fa-chevron-down ml-2 text-xs"></i>
+                  </button>
+                  <div id="results-filter-menu" class="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl hidden z-50 py-2">
+                    <div class="px-4 py-1 text-xs font-semibold text-gray-500 uppercase" data-i18n="filter.category">Categoria</div>
+                    <button type="button" onclick="applySelectionFilter('all')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="filter.allTypes">Todos os tipos</button>
+                    <button type="button" onclick="applySelectionFilter('image')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="category.images">Imagens</button>
+                    <button type="button" onclick="applySelectionFilter('video')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="category.videos">Vídeos</button>
+                    <button type="button" onclick="applySelectionFilter('audio')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="category.audio">Áudio</button>
+                    <button type="button" onclick="applySelectionFilter('document')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="category.documents">Documentos</button>
+                    <button type="button" onclick="applySelectionFilter('archive')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="category.archives">Arquivos compactados</button>
+                    <div class="border-t border-gray-700 my-1"></div>
+                    <div class="px-4 py-1 text-xs font-semibold text-gray-500 uppercase" data-i18n="filter.sort">Ordenação</div>
+                    <button type="button" onclick="applySelectionSort('confidence_desc')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="filter.byConfidence">Maior confiança</button>
+                    <button type="button" onclick="applySelectionSort('size_desc')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="filter.byLargest">Maior tamanho</button>
+                    <button type="button" onclick="applySelectionSort('size_asc')" class="block px-4 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white w-full text-left" data-i18n="filter.bySmallest">Menor tamanho</button>
+                  </div>
+                </div>
+                <button type="button" id="btn-recover" onclick="recoverSelected()" class="px-3 py-1 bg-success/20 text-success hover:bg-success/30 rounded-lg text-sm transition">
+                  <i class="fas fa-download mr-1"></i><span data-i18n="recovery.recoverSelected">Recuperar Selecionados</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="px-6 pt-3 pb-1 text-xs text-primary sm:hidden" data-i18n="table.scrollHint">Deslize para ver todas as colunas</div>
+          <div class="overflow-x-auto">
+            <table class="w-full scan-results-table">
+              <thead class="bg-gray-800/50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    <input type="checkbox" id="select-all" title="Selecionar página" aria-label="Selecionar página" class="rounded bg-gray-700 border-gray-600" />
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase" data-i18n="table.type">Tipo</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase" data-i18n="table.size">Tamanho</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase" data-i18n="table.confidence">Confiança</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase" data-i18n="table.offset">Offset</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase" data-i18n="table.actions">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="results-table-body" class="divide-y divide-gray-800"></tbody>
+            </table>
+          </div>
+          <!-- Pagination Control Base -->
+          <div class="p-4 border-t border-gray-800 flex items-center justify-between bg-darker/50 rounded-b-xl">
+              <div id="pagination-info" class="text-sm text-gray-400" data-i18n="pagination.empty">Mostrando 0 de 0</div>
+            <div class="flex items-center space-x-2">
+              <button id="btn-prev-page" onclick="changePage(-1)" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-chevron-left mr-1"></i><span data-i18n="pagination.prev">Anterior</span>
+              </button>
+              <div id="pagination-numbers" class="flex space-x-1"></div>
+              <button id="btn-next-page" onclick="changePage(1)" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition disabled:opacity-50 disabled:cursor-not-allowed">
+                <span data-i18n="pagination.next">Próxima</span><i class="fas fa-chevron-right ml-1"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SMART ───────────────────────────────────── -->
+      <section id="smart-section" class="section hidden">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold mb-2" data-i18n="smart.title">Monitoramento SMART</h1>
+          <p class="text-gray-400" data-i18n="smart.subtitle">Saúde e diagnóstico dos discos</p>
+        </div>
+        <div id="smart-container" class="space-y-6">
+          <div class="text-center py-12">
+            <i class="fas fa-circle-notch fa-spin text-4xl text-primary mb-4"></i>
+            <p class="text-gray-400" data-i18n="smart.loading">Carregando informações SMART...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Logs ───────────────────────────────────── -->
+      <section id="logs-section" class="section hidden">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold mb-2" data-i18n="logs.title">Logs do Sistema</h1>
+          <p class="text-gray-400" data-i18n="logs.subtitle">Histórico de operações e eventos</p>
+        </div>
+        <div id="logs-container" class="bg-dark rounded-xl border border-gray-800">
+          <div class="p-6 border-b border-gray-800 flex justify-between items-center">
+            <h3 class="text-lg font-semibold" data-i18n="logs.recent">Logs Recentes</h3>
+            <div class="flex gap-2">
+              <button onclick="refreshLogs()" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+                <i class="fas fa-refresh mr-1"></i><span data-i18n="logs.refresh">Atualizar</span>
+              </button>
+              <button onclick="clearAllLogs()" class="px-3 py-1 bg-danger/20 hover:bg-danger/30 text-danger rounded-lg text-sm transition">
+                <i class="fas fa-trash mr-1"></i><span data-i18n="logs.clearAll">Limpar tudo</span>
+              </button>
+            </div>
+          </div>
+          <div id="logs-content" class="p-6 font-mono text-sm text-gray-300 max-h-[60vh] md:max-h-96 overflow-y-auto">
+            <span data-i18n="logs.loading">Carregando logs...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Sobre ──────────────────────────────────── -->
+      <section id="about-section" class="section hidden">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold mb-2" data-i18n="about.title">Sobre o RevivaX</h1>
+          <p class="text-gray-400" data-i18n="about.subtitle">Conheça o projeto e as pessoas por trás dele</p>
+        </div>
+
+        <!-- Hero card -->
+        <div class="bg-dark rounded-2xl border border-gray-800 overflow-hidden mb-8">
+          <div class="h-2 bg-gradient-to-r from-primary via-secondary to-accent"></div>
+          <div class="p-8 md:p-12">
+            <div class="flex flex-col md:flex-row items-start md:items-center gap-6 mb-8">
+              <div class="brand-mark brand-mark-lg flex-shrink-0">
+                <img src="{{ url_for('static', filename='images/revivax-icon.svg') }}" alt="RevivaX" />
+              </div>
+              <div class="flex-1">
+                <h2 class="text-2xl font-bold mb-2 gradient-text">RevivaX</h2>
+                <p class="text-gray-300 leading-relaxed w-full" data-i18n="about.heroDesc">Um sistema profissional de recuperação de arquivos eliminados, desenvolvido para ajudar a resgatar o que foi perdido. O RevivaX realiza uma varredura profunda em dispositivos de armazenamento, identificando arquivos por suas assinaturas binárias: imagens, vídeos, documentos, áudios e muito mais, tudo com uma interface limpa e intuitiva.</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="bg-gray-800/60 rounded-xl p-4 text-center">
+                <i class="fas fa-shield-halved text-primary text-2xl mb-2"></i>
+                <div class="font-semibold" data-i18n="about.readOnlyTitle">Somente leitura</div>
+                <div class="text-xs text-gray-400 mt-1" data-i18n="about.readOnlyDesc">Seus dados ficam seguros durante a varredura.</div>
+              </div>
+              <div class="bg-gray-800/60 rounded-xl p-4 text-center">
+                <i class="fas fa-bolt text-warning text-2xl mb-2"></i>
+                <div class="font-semibold" data-i18n="about.performanceTitle">Alto desempenho</div>
+                <div class="text-xs text-gray-400 mt-1" data-i18n="about.performanceDesc">Leitura otimizada com blocos grandes para reduzir o custo de I/O.</div>
+              </div>
+              <div class="bg-gray-800/60 rounded-xl p-4 text-center">
+                <i class="fas fa-code-branch text-accent text-2xl mb-2"></i>
+                <div class="font-semibold" data-i18n="about.openSourceTitle">Código aberto</div>
+                <div class="text-xs text-gray-400 mt-1" data-i18n="about.openSourceDesc">Projeto de código aberto em evolução contínua.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Autores -->
+        <h2 class="text-xl font-bold mb-4" data-i18n="about.authors">👥 Autores</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <!-- INformigados -->
+          <div class="bg-dark rounded-xl border border-gray-800 p-6 card-hover flex items-start gap-5">
+            <div class="flex-shrink-0">
+              <img src="{{ url_for('static', filename='images/authors/informigados.webp') }}"
+                alt="INformigados" width="64" height="64"
+                class="w-16 h-16 rounded-full object-cover border-2 border-primary/40"
+                onerror="this.outerHTML='<div class=&quot;w-16 h-16 bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 rounded-full flex items-center justify-center&quot;><i class=&quot;fas fa-user text-primary text-2xl&quot;></i></div>'">
+            </div>
+            <div class="flex-1">
+              <h3 class="text-lg font-bold">INformigados</h3>
+              <p class="text-sm text-gray-400 mb-3" data-i18n="about.authorFounder">Criador e desenvolvedor principal</p>
+              <a href="https://github.com/informigados/" target="_blank" rel="noopener"
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition text-gray-300">
+                <i class="fab fa-github"></i> github.com/informigados
+              </a>
+            </div>
+          </div>
+
+          <!-- Alex Brito -->
+          <div class="bg-dark rounded-xl border border-gray-800 p-6 card-hover flex items-start gap-5">
+            <div class="flex-shrink-0">
+              <img src="{{ url_for('static', filename='images/authors/alex-brito-dev.webp') }}"
+                alt="Alex Brito" width="64" height="64"
+                class="w-16 h-16 rounded-full object-cover border-2 border-accent/40"
+                onerror="this.outerHTML='<div class=&quot;w-16 h-16 bg-gradient-to-br from-accent/30 to-accent/10 border border-accent/30 rounded-full flex items-center justify-center&quot;><i class=&quot;fas fa-user text-accent text-2xl&quot;></i></div>'">
+            </div>
+            <div class="flex-1">
+              <h3 class="text-lg font-bold">Alex Brito</h3>
+              <p class="text-sm text-gray-400 mb-3" data-i18n="about.authorCoDeveloper">Co-desenvolvedor</p>
+              <a href="https://github.com/AlexBritoDEV" target="_blank" rel="noopener"
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition text-gray-300">
+                <i class="fab fa-github"></i> github.com/AlexBritoDEV
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Colaboradores -->
+        <div class="bg-gradient-to-br from-primary/5 to-accent/5 border border-primary/20 rounded-2xl p-8 mb-8 text-center">
+          <div class="text-4xl mb-4">🚀</div>
+          <h2 class="text-xl font-bold mb-3" data-i18n="about.joinTitle">Quer fazer parte do projeto?</h2>
+          <p class="text-gray-400 max-w-xl mx-auto mb-6 leading-relaxed" data-i18n="about.joinText">O RevivaX é um projeto de código aberto, e toda contribuição é muito bem-vinda. Se você tem ideias, encontrou um bug, quer melhorar o desempenho ou adicionar suporte a novos formatos, junte-se a nós. Juntos podemos ajudar mais pessoas a recuperar o que perderam. 💙</p>
+          <a href="https://github.com/informigados/revivax" target="_blank" rel="noopener"
+            class="inline-flex items-center gap-3 px-6 py-3 bg-primary hover:bg-primary/80 text-white rounded-xl font-medium transition">
+            <i class="fab fa-github text-lg"></i><span data-i18n="about.githubContribute">Contribuir no GitHub</span>
+          </a>
+          <p class="text-xs text-gray-600 mt-4" data-i18n="about.contributorHint">Quem contribuir pode ter seu nome listado aqui. ✨</p>
+        </div>
+
+        <!-- Colaboradores list (populated dynamically if any) -->
+        <div id="contributors-list" class="hidden mb-8">
+          <h2 class="text-xl font-bold mb-4" data-i18n="about.contributors">🌟 Colaboradores</h2>
+          <div id="contributors-grid" class="flex flex-wrap gap-3"></div>
+        </div>
+
+        <!-- Footer credit inside About (hidden since global footer now covers this) -->
+      </section>
+
+    </main>
+
+    <!-- Global footer copyright — always visible on every tab -->
+    <footer class="border-t border-gray-800 bg-darker py-4 text-center text-sm text-gray-600">
+      <span id="footer-year"></span> <span data-i18n="footer.rights">© INformigados — Todos os direitos reservados.</span>
+    </footer>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+    <script src="{{ url_for('static', filename='js/i18n-pt-BR.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/i18n-pt-PT.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/i18n-en.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/i18n-es.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  </body>
+</html>

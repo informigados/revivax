@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+.env
+.venv
+env.bak/
+venv.bak/
+config.env
+
+# Logs and databases
+logs/
+*.log
+*.sqlite3
+*.db
+!revivax_samples.db
+
+# Local documentation and notes
+docs/
+RevivaX_MVP.md
+
+# Executables and builds
+*.exe
+*.bin
+
+# IDE and Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.pytest_cache/
+
+# Temporary outputs (Carver and specific temp files)
+tmp/
+scratch/
+recovery_output/
+*.tmp
+
+# Runtime output generated locally
+recovered/*
+!recovered/.gitkeep
+tools/*
+!tools/.gitkeep

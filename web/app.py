@@ -906,9 +906,9 @@ def start_recovery():
                 error_key = 'recover.protected_output_dir' if os.name == 'nt' else 'recover.restricted_output_dir'
                 return jsonify({'success': False, 'error': _api_t(error_key, lang=recover_lang)}), 403
 
-            if not out.exists() or not out.is_dir():
-                return jsonify({'success': False, 'error': _api_t('recover.output_dir_missing', lang=recover_lang)}), 400
-
+            # O FileCarver centraliza a preparação efetiva do diretório de saída.
+            # Evitamos repetir sondagens de filesystem aqui para reduzir superfície
+            # de path handling na camada HTTP.
             recovery_manager.carver.output_dir = out
 
         def _do_recovery():

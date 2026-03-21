@@ -7,14 +7,13 @@ thread-lock no scan_progress, SMART com cache TTL, segurança melhorada.
 import os
 import re
 import sys
-import csv
 import json
 import logging
 import threading
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from flask import Flask, Response, render_template, jsonify, request, send_file
 from flask_cors import CORS
@@ -88,8 +87,10 @@ _PROGRESS_EMPTY = {
 scan_progress: dict = {**_PROGRESS_EMPTY}
 
 # ── Cache de dados SMART (evita múltiplos round-trips ao PS) ──────────────────
-_smart_cache:          Optional[dict] = None
-_smart_cache_time:     float          = 0.0
+_smart_cache_state = {
+    'data': None,
+    'time': 0.0,
+}
 _SMART_CACHE_TTL_SECS: int            = 60   # Reutiliza dados por 60 s
 
 API_TRANSLATIONS = {
@@ -456,17 +457,16 @@ def get_file_types():
 @app.route('/api/smart')
 def get_smart_info():
     """Retorna resumo SMART de todos os drives, com cache TTL de 60 s."""
-    global _smart_cache, _smart_cache_time
     try:
         now = time.monotonic()
-        if _smart_cache is not None and (now - _smart_cache_time) < _SMART_CACHE_TTL_SECS:
-            return jsonify({'success': True, 'available': True, 'data': _smart_cache,
+        if _smart_cache_state['data'] is not None and (now - _smart_cache_state['time']) < _SMART_CACHE_TTL_SECS:
+            return jsonify({'success': True, 'available': True, 'data': _smart_cache_state['data'],
                             'cached': True})
 
         if smart_monitor and smart_monitor.is_available():
             summary = smart_monitor.get_health_summary()
-            _smart_cache      = summary
-            _smart_cache_time = now
+            _smart_cache_state['data'] = summary
+            _smart_cache_state['time'] = now
             return jsonify({'success': True, 'available': True, 'data': summary})
         else:
             return jsonify({
@@ -481,8 +481,8 @@ def get_smart_info():
 @app.route('/api/smart/refresh', methods=['POST'])
 def refresh_smart():
     """Invalida o cache SMART e força nova leitura."""
-    global _smart_cache
-    _smart_cache = None
+    _smart_cache_state['data'] = None
+    _smart_cache_state['time'] = 0.0
     return jsonify({'success': True, 'message': _api_t('smart.cache_cleared')})
 
 
@@ -879,8 +879,8 @@ def get_logs():
                         'filename': log_file.name,
                         'content':  content[-5000:] if len(content) > 5000 else content,
                     })
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("Falha ao ler log %s: %s", log_file.name, exc)
         return jsonify({'success': True, 'logs': logs})
     except Exception as exc:
         logger.error("Erro ao ler logs: %s", exc)

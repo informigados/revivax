@@ -9,7 +9,6 @@ from pathlib import Path
 import core.smartctl_setup as smartctl_setup
 from core.carver import FileCarver
 import core.recovery as recovery_module
-from core.recovery import RecoveryManager
 from core.scanner import DiskScanner, FILE_SIGNATURES, ScanMode, ScanResult
 
 webapp = importlib.import_module("web.app")
@@ -174,7 +173,7 @@ def test_regular_file_scan_detects_embedded_png(tmp_path):
 
 
 def test_api_scan_recover_and_export_smoke(tmp_path, monkeypatch):
-    manager = RecoveryManager(
+    manager = recovery_module.RecoveryManager(
         output_dir=str(tmp_path / "recovered"),
         logs_dir=str(tmp_path / "test-logs"),
     )
@@ -253,7 +252,7 @@ def test_api_scan_recover_and_export_smoke(tmp_path, monkeypatch):
 
 
 def test_scan_results_follow_current_job_id(tmp_path, monkeypatch):
-    manager = RecoveryManager(
+    manager = recovery_module.RecoveryManager(
         output_dir=str(tmp_path / "recovered"),
         logs_dir=str(tmp_path / "test-logs"),
     )
@@ -317,7 +316,7 @@ def test_scan_results_follow_current_job_id(tmp_path, monkeypatch):
 
 
 def test_folder_scan_normalizes_deep_mode_to_quick(tmp_path, monkeypatch):
-    manager = RecoveryManager(
+    manager = recovery_module.RecoveryManager(
         output_dir=str(tmp_path / "recovered"),
         logs_dir=str(tmp_path / "test-logs"),
     )
@@ -514,7 +513,7 @@ def test_folder_carve_releases_output_file_handle(tmp_path):
 def test_recovery_manager_resolves_relative_paths_from_project_root(tmp_path, monkeypatch):
     monkeypatch.setattr(recovery_module, "PROJECT_ROOT", tmp_path)
 
-    manager = RecoveryManager(output_dir="relative-output", logs_dir="relative-logs")
+    manager = recovery_module.RecoveryManager(output_dir="relative-output", logs_dir="relative-logs")
 
     assert manager.output_dir == (tmp_path / "relative-output").resolve()
     assert manager.logs_dir == (tmp_path / "relative-logs").resolve()
@@ -526,7 +525,7 @@ def test_recovery_rejects_restricted_windows_output_dir(tmp_path, monkeypatch):
     if os.name != "nt":
         return
 
-    manager = RecoveryManager(
+    manager = recovery_module.RecoveryManager(
         output_dir=str(tmp_path / "recovered"),
         logs_dir=str(tmp_path / "test-logs"),
     )

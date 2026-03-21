@@ -5,7 +5,6 @@ Módulo de monitoramento de saúde de discos via SMART
 
 import os
 import re
-import json
 import logging
 import subprocess
 from typing import Dict, List, Optional, Tuple
@@ -523,8 +522,8 @@ class SMARTMonitor:
             match = re.search(r'(\d+)', cleaned)
             if match:
                 return int(match.group(1))
-        except Exception:
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug("Falha ao interpretar valor SMART bruto %r: %s", value_str, exc)
         return 0
 
     @staticmethod
@@ -693,15 +692,6 @@ class SMARTMonitor:
         import csv, io
         try:
             # ── Query 1: discos via Get-Disk (fonte canônica de DiskNumber) ────
-            ps_disk = (
-                "Get-Disk | Select-Object Number,FriendlyName,"
-                "@{N='SizeBytes';E={$_.Size}},HealthStatus,IsBoot,"
-                "OperationalStatus,SerialNumber,"
-                "@{N='MediaType';E={(Get-PhysicalDisk | Where-Object {$_.FriendlyName -eq $_.FriendlyName} | Select-Object -First 1).MediaType}} |"
-                " Sort-Object Number | ConvertTo-Csv -NoTypeInformation"
-            )
-            # Simpler and more reliable: get both Get-Disk and Get-PhysicalDisk separately,
-            # join by FriendlyName in Python
             ps_disk = (
                 "Get-Disk | Sort-Object Number | "
                 "Select-Object Number,FriendlyName,"

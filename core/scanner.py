@@ -8,8 +8,9 @@ import struct
 import logging
 import mmap
 import base64
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Tuple
+from typing import List, Dict, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
@@ -472,21 +473,7 @@ class DiskScanner:
             return self.results
 
         try:
-            if os.name == 'nt' and self._is_windows_device_path(drive_path):
-                # Normaliza letras de unidade para o formato exigido pelo CreateFileW.
-                if len(drive_path) == 2 and drive_path[1] == ':':
-                    drive_path = r'\\.' + '\\' + drive_path
-                elif len(drive_path) == 3 and drive_path[1] == ':' and drive_path[2] in ('\\', '/'):
-                    drive_path = r'\\.' + '\\' + drive_path[:2]
-                drive, drive_size = self._open_windows_drive(drive_path)
-            else:
-                mode_flag = 'rb' if self.read_only else 'rb+'
-                drive = open(drive_path, mode_flag)
-                drive.seek(0, 2)
-                drive_size = drive.tell()
-                drive.seek(0)
-
-            with drive:
+            with self._open_scan_source(drive_path) as (drive, drive_size):
                 logger.info(f"Iniciando varredura de {drive_path} ({self._format_size(drive_size)})")
 
                 if mode == ScanMode.QUICK:
@@ -542,8 +529,8 @@ class DiskScanner:
                 try:
                     os.scandir(full).close()
                     accessible.append(d)
-                except (PermissionError, OSError):
-                    pass
+                except (PermissionError, OSError) as exc:
+                    logger.debug("Ignorando subpasta inacessível %s: %s", full, exc)
             dirnames[:] = accessible
 
             for fn in filenames:
@@ -587,8 +574,8 @@ class DiskScanner:
                         if matched:
                             break
 
-                except (PermissionError, OSError):
-                    pass
+                except (PermissionError, OSError) as exc:
+                    logger.debug("Ignorando arquivo inacessível %s: %s", filepath, exc)
 
                 idx += 1
                 if progress_callback and (idx % 10 == 0 or idx == 1):
@@ -829,6 +816,29 @@ class DiskScanner:
 
         return drive_file, drive_size
 
+    @contextmanager
+    def _open_scan_source(self, drive_path: str):
+        """Abre a origem da varredura com fechamento garantido do handle."""
+        if os.name == 'nt' and self._is_windows_device_path(drive_path):
+            normalized_path = drive_path
+            if len(normalized_path) == 2 and normalized_path[1] == ':':
+                normalized_path = r'\\.' + '\\' + normalized_path
+            elif len(normalized_path) == 3 and normalized_path[1] == ':' and normalized_path[2] in ('\\', '/'):
+                normalized_path = r'\\.' + '\\' + normalized_path[:2]
+            drive, drive_size = self._open_windows_drive(normalized_path)
+            try:
+                yield drive, drive_size
+            finally:
+                drive.close()
+            return
+
+        mode_flag = 'rb' if self.read_only else 'rb+'
+        with open(drive_path, mode_flag) as drive:
+            drive.seek(0, 2)
+            drive_size = drive.tell()
+            drive.seek(0)
+            yield drive, drive_size
+
     def _open_source_stream(self, source_path: str):
         """Abre arquivo comum, volume cru ou imagem de forma uniforme."""
         if os.name == 'nt' and self._is_windows_device_path(source_path):
@@ -1023,8 +1033,8 @@ class DiskScanner:
             if mm is not None:
                 try:
                     mm.close()
-                except Exception:
-                    pass
+                except (BufferError, ValueError) as exc:
+                    logger.debug("Falha ao fechar mmap da varredura: %s", exc)
 
 
     def _deep_scan(self,
@@ -1229,8 +1239,8 @@ class DiskScanner:
                 if b'PK\x05\x06' in header:
                     return header.find(b'PK\x05\x06') + 22
                     
-        except Exception:
-            pass
+        except (IndexError, struct.error, ValueError) as exc:
+            logger.debug("Falha ao estimar tamanho pelo header para %s: %s", signature.extension, exc)
             
         return None
     
@@ -1336,37 +1346,23 @@ def get_available_drives() -> List[Dict]:
         # Windows
         if os.name == 'nt':
             import string
-            from ctypes import windll
+            import ctypes
             
-            bitmask = windll.kernel32.GetLogicalDrives()
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
             for letter in string.ascii_uppercase:
                 if bitmask & 1:
                     drive_path = f"{letter}:\\"
-                    try:
-                        total, free = 0, 0
-                        import ctypes
-                        
-                        class DiskInfo(ctypes.Structure):
-                            _fields_ = [
-                                ("TotalClusters", ctypes.c_ulonglong),
-                                ("FreeClusters", ctypes.c_ulonglong),
-                                ("SectorsPerCluster", ctypes.c_ulonglong),
-                                ("BytesPerSector", ctypes.c_ulonglong)
-                            ]
-                        
-                        drives.append({
-                            'device': drive_path,
-                            'mountpoint': drive_path,
-                            'fstype': 'unknown',
-                            'opts': '',
-                            'total': 0,
-                            'used': 0,
-                            'free': 0,
-                            'percent': 0,
-                            'is_system': _is_system_partition(drive_path, system_drive, system_root),
-                        })
-                    except Exception:
-                        pass
+                    drives.append({
+                        'device': drive_path,
+                        'mountpoint': drive_path,
+                        'fstype': 'unknown',
+                        'opts': '',
+                        'total': 0,
+                        'used': 0,
+                        'free': 0,
+                        'percent': 0,
+                        'is_system': _is_system_partition(drive_path, system_drive, system_root),
+                    })
                 bitmask >>= 1
     
     return drives

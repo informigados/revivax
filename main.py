@@ -10,14 +10,12 @@ Uso:
 """
 
 import sys
-import os
-import platform
 import socket
 import argparse
 import logging
 import webbrowser
 from pathlib import Path
-from threading import Timer, Thread
+from threading import Thread
 
 try:
     from waitress import serve
@@ -198,7 +196,7 @@ Exemplos:
     # Garante smartctl disponível (baixa se necessário) ANTES de iniciar o Flask
     logger.info("Verificando disponibilidade do smartctl...")
     try:
-        from core.smartctl_setup import ensure_smartctl, SMARTCTL_LOCAL
+        from core.smartctl_setup import ensure_smartctl
         sc_path = ensure_smartctl()
         if sc_path:
             logger.info("smartctl pronto: %s", sc_path)

@@ -196,8 +196,8 @@ def _download_smartctl() -> Optional[str]:
         # Limpa todos os arquivos temporários
         try:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.debug("Falha ao limpar diretório temporário %s: %s", tmp_dir, exc)
 
     # ── Verifica se o binário funciona ─────────────────────────────────────────
     if _is_executable(str(SMARTCTL_LOCAL)):

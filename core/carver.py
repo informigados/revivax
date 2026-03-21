@@ -8,12 +8,12 @@ import hashlib
 import logging
 import base64
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, BinaryIO
+from typing import List, Dict, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
 import threading
 
-from .scanner import DiskScanner, ScanResult, FileSignature
+from .scanner import DiskScanner, ScanResult
 
 logger = logging.getLogger(__name__)
 

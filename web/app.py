@@ -32,8 +32,10 @@ from core.runtime_paths import get_logs_dir
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 WINDOWS_DRIVE_RE = re.compile(r'[A-Za-z]:\\?')
-WINDOWS_ABSOLUTE_PATH_RE = re.compile(r'[A-Za-z]:(?:\\.*)?')
+WINDOWS_ROOTED_PATH_RE = re.compile(r'[A-Za-z]:\\.*')
 WINDOWS_RAW_DEVICE_RE = re.compile(r'\\\\\.\\PHYSICALDRIVE\d+', re.IGNORECASE)
+# Intervalo de polling usado pelo stream SSE de progresso.
+_SSE_POLL_INTERVAL_SECS = 0.5
 
 
 def _get_allowed_local_origins() -> List[str]:
@@ -116,7 +118,7 @@ _smart_cache_state = {
     'data': None,
     'time': 0.0,
 }
-_SMART_CACHE_TTL_SECS: int            = 60   # Reutiliza dados por 60 s
+_SMART_CACHE_TTL_SECS: int = 60  # Reutiliza dados por 60 s
 
 API_TRANSLATIONS = {
     'pt-BR': {
@@ -322,7 +324,7 @@ def init_managers() -> None:
     """Inicializa gerenciadores de recuperação e monitoramento."""
     global recovery_manager, smart_monitor
     recovery_manager = get_recovery_manager()
-    smart_monitor    = get_smart_monitor()
+    smart_monitor = get_smart_monitor()
     logger.info("Gerenciadores inicializados com sucesso.")
 
 
@@ -399,19 +401,23 @@ def _normalize_scan_target_input(raw_path: str) -> str:
             return normalized.upper()
         if WINDOWS_DRIVE_RE.fullmatch(normalized):
             return normalized[:2].upper()
-        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized):
             raise ValueError("scan target must be an absolute local path")
-        candidate = normalized
-    elif not candidate.startswith('/'):
-        raise ValueError("scan target must be an absolute path")
+        expanded = os.path.expanduser(normalized)
+        absolute = os.path.abspath(expanded)
+        normalized_absolute = os.path.normpath(absolute)
+        if normalized_absolute.startswith('\\\\'):
+            raise ValueError("unc path not allowed")
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized_absolute):
+            raise ValueError("scan target must remain an absolute local path")
+        return normalized_absolute
 
-    path_obj = Path(candidate).expanduser()
-    if not path_obj.is_absolute():
-        raise ValueError("scan target must be absolute")
-    resolved = _resolve_path_safe(path_obj)
-    if os.name == 'nt' and str(resolved).startswith('\\\\'):
-        raise ValueError("unc path not allowed")
-    return str(resolved)
+    expanded = os.path.expanduser(candidate)
+    absolute = os.path.abspath(expanded)
+    normalized_absolute = os.path.normpath(absolute)
+    if not normalized_absolute.startswith('/'):
+        raise ValueError("scan target must be an absolute path")
+    return normalized_absolute
 
 
 def _normalize_output_dir_input(raw_path: str) -> Path:
@@ -420,16 +426,22 @@ def _normalize_output_dir_input(raw_path: str) -> Path:
         raise ValueError("missing output dir")
     if os.name == 'nt':
         normalized = candidate.replace('/', '\\')
-        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized):
             raise ValueError("output dir must be an absolute local path")
-        candidate = normalized
-    elif not candidate.startswith('/'):
+        absolute = os.path.abspath(os.path.expanduser(normalized))
+        normalized_absolute = os.path.normpath(absolute)
+        if normalized_absolute.startswith('\\\\'):
+            raise ValueError("unc path not allowed")
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized_absolute):
+            raise ValueError("output dir must remain an absolute local path")
+        return _resolve_path_safe(Path(normalized_absolute))
+
+    absolute = os.path.abspath(os.path.expanduser(candidate))
+    normalized_absolute = os.path.normpath(absolute)
+    if not normalized_absolute.startswith('/'):
         raise ValueError("output dir must be an absolute path")
 
-    path_obj = Path(candidate).expanduser()
-    if not path_obj.is_absolute():
-        raise ValueError("output dir must be absolute")
-    resolved = _resolve_path_safe(path_obj)
+    resolved = _resolve_path_safe(Path(normalized_absolute))
     if os.name == 'nt' and str(resolved).startswith('\\\\'):
         raise ValueError("unc path not allowed")
     return resolved
@@ -733,7 +745,8 @@ def get_scan_progress_stream():
             with _progress_lock:
                 snapshot = {**scan_progress, 'file_counts': dict(scan_progress.get('file_counts', {}))}
 
-            if expected_job_id and snapshot.get('job_id') and snapshot.get('job_id') != expected_job_id:
+            snapshot_job_id = snapshot.get('job_id')
+            if expected_job_id and snapshot_job_id and snapshot_job_id != expected_job_id:
                 break
             
             data = json.dumps({'success': True, 'progress': snapshot})
@@ -744,7 +757,7 @@ def get_scan_progress_stream():
                 break
             
             # Rate limit de 500ms por frame para SSE
-            time.sleep(0.5)
+            time.sleep(_SSE_POLL_INTERVAL_SECS)
 
     return Response(
         generate(),
@@ -792,7 +805,10 @@ def get_scan_results():
             })
         results.sort(key=lambda x: x['confidence'], reverse=True)
 
-        scan_context = (job.stats or {}).get('scan_context') or recovery_manager.get_scan_target_context(job.drive_path, job.mode)
+        stats = job.stats or {}
+        scan_context = stats.get('scan_context')
+        if not scan_context:
+            scan_context = recovery_manager.get_scan_target_context(job.drive_path, job.mode)
 
         return _json_response({
             'success': True,

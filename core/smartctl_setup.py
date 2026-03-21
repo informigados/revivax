@@ -133,14 +133,12 @@ def _download_smartctl() -> Optional[str]:
     tag_name = release.get('tag_name', 'desconhecida')
     exe_url  = None
     exe_name = None
-    exe_digest = None
 
     for asset in assets:
         name = asset.get('name', '')
         if name.endswith(WIN_INSTALLER_SUFFIX):
             exe_url  = asset.get('browser_download_url')
             exe_name = name
-            exe_digest = asset.get('digest')
             logger.info("Release encontrado: %s — asset: %s", tag_name, name)
             break
 
@@ -163,7 +161,7 @@ def _download_smartctl() -> Optional[str]:
         response = urlopen(req, timeout=NET_TIMEOUT)
         installer_path.write_bytes(response.read())
         logger.info("Download concluído: %s", installer_path)
-        if not _verify_download_integrity(installer_path, exe_digest):
+        if not _verify_download_integrity(installer_path):
             logger.error("Falha na validação de integridade do instalador: %s", installer_path)
             return None
 
@@ -215,8 +213,8 @@ def _download_smartctl() -> Optional[str]:
     return None
 
 
-def _verify_download_integrity(file_path: Path, expected_digest: Optional[str]) -> bool:
-    """Valida o download por digest do release ou assinatura Authenticode."""
+def _verify_download_integrity(file_path: Path, expected_digest: Optional[str] = None) -> bool:
+    """Valida o download por digest explícito ou Authenticode quando disponível."""
     if expected_digest:
         try:
             algo, expected_hash = expected_digest.split(':', 1)
@@ -224,11 +222,7 @@ def _verify_download_integrity(file_path: Path, expected_digest: Optional[str]) 
             with open(file_path, 'rb') as handle:
                 for chunk in iter(lambda: handle.read(1024 * 1024), b''):
                     digest.update(chunk)
-            calculated_hash = digest.hexdigest().lower()
-            if calculated_hash == expected_hash.lower():
-                return True
-            logger.error("Digest do instalador divergente. Esperado=%s calculado=%s", expected_hash, calculated_hash)
-            return False
+            return digest.hexdigest().lower() == expected_hash.lower()
         except (ValueError, OSError) as exc:
             logger.error("Falha ao validar digest do instalador: %s", exc)
             return False
@@ -236,7 +230,7 @@ def _verify_download_integrity(file_path: Path, expected_digest: Optional[str]) 
     if os.name == 'nt':
         return _verify_authenticode_signature(file_path)
 
-    logger.warning("Sem digest do release e sem validação de assinatura disponível para %s", file_path)
+    logger.warning("Validação de assinatura indisponível para %s fora do Windows", file_path)
     return False
 
 

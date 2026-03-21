@@ -29,8 +29,12 @@ from .ntfs import (
 logger = logging.getLogger(__name__)
 
 WINDOWS_DRIVE_RE = re.compile(r'[A-Za-z]:\\?')
-WINDOWS_ABSOLUTE_PATH_RE = re.compile(r'[A-Za-z]:(?:\\.*)?')
+WINDOWS_ROOTED_PATH_RE = re.compile(r'[A-Za-z]:\\.*')
 WINDOWS_RAW_DEVICE_RE = re.compile(r'\\\\\.\\PHYSICALDRIVE\d+', re.IGNORECASE)
+# Margem extra para não perder assinaturas que cruzam a borda do chunk.
+OVERLAP_SAFETY_MARGIN = 16
+# Chunk base da varredura profunda, alinhado por setor depois.
+DEEP_SCAN_CHUNK_SIZE = 2 * 1024 * 1024
 
 EXTENSION_CATEGORY_MAP = {
     'jpg': 'image', 'jpeg': 'image', 'png': 'image', 'gif': 'image', 'bmp': 'image',
@@ -74,19 +78,33 @@ def _sanitize_scan_target_path(target_path: str) -> str:
             return normalized.upper()
         if WINDOWS_DRIVE_RE.fullmatch(normalized):
             return normalized[:2].upper()
-        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized):
             raise ValueError("scan target must be an absolute local path")
-        candidate = normalized
-    elif not candidate.startswith('/'):
-        raise ValueError("scan target must be an absolute path")
+        absolute = os.path.abspath(os.path.expanduser(normalized))
+        normalized_absolute = os.path.normpath(absolute)
+        if normalized_absolute.startswith('\\\\'):
+            raise ValueError("UNC scan targets are not supported")
+        if not WINDOWS_ROOTED_PATH_RE.fullmatch(normalized_absolute):
+            raise ValueError("scan target must remain an absolute local path")
+        return normalized_absolute
 
-    path_obj = Path(candidate).expanduser()
-    if not path_obj.is_absolute():
-        raise ValueError("scan target must be absolute")
-    resolved = path_obj.resolve(strict=False)
-    if os.name == 'nt' and str(resolved).startswith('\\\\'):
-        raise ValueError("UNC scan targets are not supported")
-    return str(resolved)
+    absolute = os.path.abspath(os.path.expanduser(candidate))
+    normalized_absolute = os.path.normpath(absolute)
+    if not normalized_absolute.startswith('/'):
+        raise ValueError("scan target must be an absolute path")
+    return normalized_absolute
+
+
+def _is_directory_scan_target(target_path: str) -> bool:
+    if os.name == 'nt':
+        normalized = target_path.replace('/', '\\')
+        if WINDOWS_RAW_DEVICE_RE.fullmatch(normalized) or WINDOWS_DRIVE_RE.fullmatch(normalized):
+            return False
+        if WINDOWS_ROOTED_PATH_RE.fullmatch(normalized):
+            return normalized.rstrip('\\') not in {normalized[:2], normalized[:3]}
+        return False
+
+    return target_path != '/'
 
 
 def _get_partition_for_path(target_path: str) -> Optional[Dict]:
@@ -126,10 +144,7 @@ def _get_partition_for_path(target_path: str) -> Optional[Dict]:
 def get_scan_target_context(target_path: str, requested_mode: Optional["ScanMode"] = None) -> Dict[str, Optional[str]]:
     sanitized_target = _sanitize_scan_target_path(target_path)
     requested = requested_mode.value if isinstance(requested_mode, ScanMode) else str(requested_mode or ScanMode.QUICK.value)
-    is_directory_target = (
-        not (os.name == 'nt' and WINDOWS_RAW_DEVICE_RE.fullmatch(sanitized_target))
-        and os.path.isdir(sanitized_target)
-    )
+    is_directory_target = _is_directory_scan_target(sanitized_target)
     if is_directory_target:
         partition = _get_partition_for_path(sanitized_target) or {}
         filesystem = (partition.get('fstype') or '').upper() or 'UNKNOWN'
@@ -474,13 +489,25 @@ class DiskScanner:
         }
         drive_path = _sanitize_scan_target_path(drive_path)
         self.last_scan_context = get_scan_target_context(drive_path, mode)
+        is_directory_target = os.path.isdir(drive_path)
+        if not is_directory_target and self.last_scan_context.get('source_kind') == 'folder':
+            self.last_scan_context.update({
+                'source_kind': 'drive',
+                'filesystem': None,
+                'volume_device': drive_path,
+                'volume_mountpoint': drive_path,
+                'supports_deep_folder_scan': False,
+                'effective_mode': mode.value,
+                'strategy': 'raw_signature_scan',
+                'note_code': 'drive_raw_signature',
+            })
 
         signatures = FILE_SIGNATURES
         if file_types:
             signatures = [s for s in signatures if s.extension in file_types]
 
         # ── Modo pasta: caminho é um diretório acessível ───────────────────────
-        if os.path.isdir(drive_path):
+        if is_directory_target:
             context = dict(self.last_scan_context)
             logger.info(
                 "Modo pasta: varrendo '%s' (requested=%s effective=%s strategy=%s fs=%s)",
@@ -924,7 +951,7 @@ class DiskScanner:
         CHUNK   = 16 * 1024 * 1024   # 16 MB — sweet spot para HDDs e SSDs
         CHUNK   = (CHUNK // sector_size) * sector_size
         max_sig = max((len(pattern) for sig in signatures for pattern in sig.signatures), default=16)
-        OVERLAP = ((max_sig + 16 + sector_size - 1) // sector_size) * sector_size
+        OVERLAP = ((max_sig + OVERLAP_SAFETY_MARGIN + sector_size - 1) // sector_size) * sector_size
 
         file_counts = {'image':0,'video':0,'audio':0,'document':0,'archive':0,'other':0}
 
@@ -1081,7 +1108,7 @@ class DiskScanner:
                    progress_callback: Optional[Callable],
                    sector_size: int):
         """Varredura profunda com overlap entre chunks e checagem byte a byte."""
-        chunk_size = max((2 * 1024 * 1024 // sector_size) * sector_size, sector_size)
+        chunk_size = max((DEEP_SCAN_CHUNK_SIZE // sector_size) * sector_size, sector_size)
         max_sig_len = max((len(pattern) for sig in signatures for pattern in sig.signatures), default=16)
         overlap = max_sig_len - 1
 

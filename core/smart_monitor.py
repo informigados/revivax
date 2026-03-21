@@ -339,7 +339,7 @@ class SMARTMonitor:
         # Verifica cache
         if use_cache and device in self._cache:
             info, timestamp = self._cache[device]
-            if (datetime.now() - timestamp).seconds < self._cache_ttl:
+            if (datetime.now() - timestamp).total_seconds() < self._cache_ttl:
                 return info
         
         try:

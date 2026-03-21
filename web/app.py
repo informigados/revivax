@@ -373,7 +373,9 @@ def _internal_error_response(log_message: str, exc: Exception, *, no_store: bool
 
 def _resolve_path_safe(path: Path) -> Path:
     try:
-        return path.expanduser().resolve(strict=False)
+        raw_path = os.fspath(path)
+        normalized = os.path.normpath(os.path.abspath(os.path.expanduser(raw_path)))
+        return Path(normalized)
     except (RuntimeError, OSError, ValueError) as exc:
         raise ValueError("invalid path") from exc
 

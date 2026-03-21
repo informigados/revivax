@@ -31,6 +31,9 @@ from core.runtime_paths import get_logs_dir
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
+WINDOWS_DRIVE_RE = re.compile(r'[A-Za-z]:\\?')
+WINDOWS_ABSOLUTE_PATH_RE = re.compile(r'[A-Za-z]:(?:\\.*)?')
+WINDOWS_RAW_DEVICE_RE = re.compile(r'\\\\\.\\PHYSICALDRIVE\d+', re.IGNORECASE)
 
 
 def _get_allowed_local_origins() -> List[str]:
@@ -392,10 +395,15 @@ def _normalize_scan_target_input(raw_path: str) -> str:
 
     if os.name == 'nt':
         normalized = candidate.replace('/', '\\')
-        if re.fullmatch(r'\\\\\.\\PHYSICALDRIVE\d+', normalized, re.IGNORECASE):
+        if WINDOWS_RAW_DEVICE_RE.fullmatch(normalized):
             return normalized.upper()
-        if re.fullmatch(r'[A-Za-z]:\\?', normalized):
+        if WINDOWS_DRIVE_RE.fullmatch(normalized):
             return normalized[:2].upper()
+        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+            raise ValueError("scan target must be an absolute local path")
+        candidate = normalized
+    elif not candidate.startswith('/'):
+        raise ValueError("scan target must be an absolute path")
 
     path_obj = Path(candidate).expanduser()
     if not path_obj.is_absolute():
@@ -407,7 +415,18 @@ def _normalize_scan_target_input(raw_path: str) -> str:
 
 
 def _normalize_output_dir_input(raw_path: str) -> Path:
-    path_obj = Path(raw_path).expanduser()
+    candidate = (raw_path or '').strip()
+    if not candidate:
+        raise ValueError("missing output dir")
+    if os.name == 'nt':
+        normalized = candidate.replace('/', '\\')
+        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+            raise ValueError("output dir must be an absolute local path")
+        candidate = normalized
+    elif not candidate.startswith('/'):
+        raise ValueError("output dir must be an absolute path")
+
+    path_obj = Path(candidate).expanduser()
     if not path_obj.is_absolute():
         raise ValueError("output dir must be absolute")
     resolved = _resolve_path_safe(path_obj)

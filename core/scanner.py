@@ -28,6 +28,10 @@ from .ntfs import (
 
 logger = logging.getLogger(__name__)
 
+WINDOWS_DRIVE_RE = re.compile(r'[A-Za-z]:\\?')
+WINDOWS_ABSOLUTE_PATH_RE = re.compile(r'[A-Za-z]:(?:\\.*)?')
+WINDOWS_RAW_DEVICE_RE = re.compile(r'\\\\\.\\PHYSICALDRIVE\d+', re.IGNORECASE)
+
 EXTENSION_CATEGORY_MAP = {
     'jpg': 'image', 'jpeg': 'image', 'png': 'image', 'gif': 'image', 'bmp': 'image',
     'tiff': 'image', 'webp': 'image', 'avif': 'image', 'psd': 'image', 'svg': 'image',
@@ -66,10 +70,15 @@ def _sanitize_scan_target_path(target_path: str) -> str:
 
     if os.name == 'nt':
         normalized = candidate.replace('/', '\\')
-        if re.fullmatch(r'\\\\\.\\PHYSICALDRIVE\d+', normalized, re.IGNORECASE):
+        if WINDOWS_RAW_DEVICE_RE.fullmatch(normalized):
             return normalized.upper()
-        if re.fullmatch(r'[A-Za-z]:\\?', normalized):
+        if WINDOWS_DRIVE_RE.fullmatch(normalized):
             return normalized[:2].upper()
+        if not WINDOWS_ABSOLUTE_PATH_RE.fullmatch(normalized):
+            raise ValueError("scan target must be an absolute local path")
+        candidate = normalized
+    elif not candidate.startswith('/'):
+        raise ValueError("scan target must be an absolute path")
 
     path_obj = Path(candidate).expanduser()
     if not path_obj.is_absolute():
@@ -117,7 +126,11 @@ def _get_partition_for_path(target_path: str) -> Optional[Dict]:
 def get_scan_target_context(target_path: str, requested_mode: Optional["ScanMode"] = None) -> Dict[str, Optional[str]]:
     sanitized_target = _sanitize_scan_target_path(target_path)
     requested = requested_mode.value if isinstance(requested_mode, ScanMode) else str(requested_mode or ScanMode.QUICK.value)
-    if os.path.isdir(sanitized_target):
+    is_directory_target = (
+        not (os.name == 'nt' and WINDOWS_RAW_DEVICE_RE.fullmatch(sanitized_target))
+        and os.path.isdir(sanitized_target)
+    )
+    if is_directory_target:
         partition = _get_partition_for_path(sanitized_target) or {}
         filesystem = (partition.get('fstype') or '').upper() or 'UNKNOWN'
         supports_deep_folder_scan = os.name == 'nt' and filesystem == 'NTFS' and bool(partition.get('device'))

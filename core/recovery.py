@@ -626,7 +626,7 @@ class RecoveryManager:
             logger.error(f"Erro ao estimar recuperação: {e}")
             return {
                 'drive': drive_path,
-                'error': str(e),
+                'error': 'analysis_failed',
                 'recovery_chance': 'unknown',
                 'description': 'Erro ao analisar drive'
             }

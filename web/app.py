@@ -26,6 +26,7 @@ from core import (
     CarveResult, RecoveryManager, RecoveryStatus, ScanMode,
     SMARTMonitor, get_extension_category, get_smart_monitor, get_recovery_manager
 )
+from core.runtime_paths import get_logs_dir
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
@@ -868,7 +869,7 @@ def get_recovery_estimate():
 def get_logs():
     """Retorna conteúdo dos logs recentes (últimos 5 arquivos, últimos 5 KB cada)."""
     try:
-        logs_dir = Path(__file__).parent.parent / 'logs'
+        logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
         logs     = []
         if logs_dir.exists():
             for log_file in sorted(logs_dir.glob('*.log'), reverse=True)[:5]:
@@ -894,7 +895,8 @@ def delete_log():
         filename = (data.get('filename') or '').strip()
         if not filename or '/' in filename or '\\' in filename or '..' in filename:
             return jsonify({'success': False, 'error': _api_t('logs.invalid_filename')}), 400
-        log_path = Path(__file__).parent.parent / 'logs' / filename
+        logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
+        log_path = logs_dir / filename
         if not log_path.exists() or not log_path.is_file():
             return jsonify({'success': False, 'error': _api_t('logs.not_found')}), 404
         log_path.unlink()
@@ -909,7 +911,7 @@ def delete_log():
 def clear_logs():
     """Exclui todos os arquivos de log (.log e .json de export)."""
     try:
-        logs_dir = Path(__file__).parent.parent / 'logs'
+        logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
         deleted  = 0
         if logs_dir.exists():
             for f in logs_dir.glob('*'):
@@ -943,7 +945,7 @@ def export_results():
         if not job:
             return jsonify({'success': False, 'error': _api_t('export.no_scan')}), 400
 
-        export_dir = Path(__file__).parent.parent / 'logs'
+        export_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
         export_dir.mkdir(exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
@@ -1037,7 +1039,8 @@ def download_file(filename: str):
         # Sanitização: apenas nome de arquivo, sem diretórios
         if '/' in filename or '\\' in filename or '..' in filename:
             return jsonify({'success': False, 'error': _api_t('download.invalid_filename')}), 400
-        filepath = Path(__file__).parent.parent / 'logs' / filename
+        logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
+        filepath = logs_dir / filename
         if not filepath.exists() or not filepath.is_file():
             return jsonify({'success': False, 'error': _api_t('download.not_found')}), 404
         return send_file(filepath, as_attachment=True)

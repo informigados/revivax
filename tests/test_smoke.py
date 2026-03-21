@@ -245,7 +245,7 @@ def test_api_scan_recover_and_export_smoke(tmp_path, monkeypatch):
         assert export_response.status_code == 200
         assert export_payload["success"] is True
 
-        export_file = Path(__file__).resolve().parents[1] / "logs" / export_payload["filename"]
+        export_file = manager.logs_dir / export_payload["filename"]
         assert export_file.exists()
 
     if export_file is not None and export_file.exists():
@@ -612,6 +612,16 @@ def test_smartctl_download_integrity_uses_digest(tmp_path):
 
     assert smartctl_setup._verify_download_integrity(installer, f"sha256:{expected}") is True
     assert smartctl_setup._verify_download_integrity(installer, "sha256:deadbeef") is False
+
+
+def test_smartctl_prefers_bundled_binary(tmp_path, monkeypatch):
+    bundled = tmp_path / "smartctl.exe"
+    bundled.write_bytes(b"binary")
+    monkeypatch.setattr(smartctl_setup, "SMARTCTL_BUNDLED", bundled)
+    monkeypatch.setattr(smartctl_setup, "SMARTCTL_LOCAL", tmp_path / "missing-smartctl.exe")
+    monkeypatch.setattr(smartctl_setup, "_is_executable", lambda path: path == str(bundled))
+
+    assert smartctl_setup.ensure_smartctl() == str(bundled)
 
 
 def test_index_uses_local_vendor_assets():

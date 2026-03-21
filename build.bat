@@ -4,6 +4,8 @@
 ::  Gera o executável standalone em dist\RevivaX\RevivaX.exe
 :: ═══════════════════════════════════════════════════════════════
 setlocal
+set "NO_PAUSE="
+if /I "%~1"=="--no-pause" set "NO_PAUSE=1"
 
 echo.
 echo  ╔══════════════════════════════════════════════════════╗
@@ -34,14 +36,8 @@ if %errorlevel% neq 0 (
 echo  [1/2] Compilando... (pode levar alguns minutos)
 echo.
 
-:: ── PyInstaller: empacota tudo em um unico executável ─────────────
-python -m PyInstaller --noconfirm --log-level=WARN ^
-    --name "RevivaX" ^
-    --add-data "web/templates;templates" ^
-    --add-data "web/static;static" ^
-    --icon NONE ^
-    --clean ^
-    main.py
+:: ── PyInstaller: empacota usando a spec oficial ───────────────────
+python -m PyInstaller --noconfirm --clean RevivaX.spec
 
 if %errorlevel% equ 0 (
     echo.
@@ -49,6 +45,7 @@ if %errorlevel% equ 0 (
     echo  ║  [OK] Build concluido com sucesso!                  ║
     echo  ║                                                      ║
     echo  ║  Executavel: dist\RevivaX\RevivaX.exe               ║
+    echo  ║  Manifesto: elevacao UAC habilitada                ║
     echo  ║                                                      ║
     echo  ║  OBSERVACOES:                                        ║
     echo  ║  - O smartctl.exe sera baixado automaticamente       ║
@@ -62,5 +59,5 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-pause
+if not defined NO_PAUSE pause
 exit /b %errorlevel%

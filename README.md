@@ -23,6 +23,8 @@
 
 The current implementation is designed for **local execution only**. The web interface binds to `127.0.0.1`, the scanner avoids writes to scanned devices, and recovery output is written only to explicitly selected destinations.
 
+The default interface language is **Portuguese (Brazil)**. Active translations are also available for **English**, **Portuguese (Portugal)**, and **Spanish**.
+
 ## ✨ Features
 
 - 🔎 **Quick Scan and Deep Scan** for signature-based file discovery.
@@ -31,12 +33,14 @@ The current implementation is designed for **local execution only**. The web int
 - 🧠 **SMART health monitoring** with `smartctl` integration and PowerShell fallback.
 - ♻️ **Selective recovery** of discovered files to a separate output directory.
 - 📊 **Local dashboard** with scan progress, results, logs, and system status.
+- 🌐 **Multilingual interface** with Portuguese (Brazil) as default plus English, Portuguese (Portugal), and Spanish.
 - 🔒 **Read-only scanning policy** for the source device.
-- 📦 **PyInstaller build script** for packaging the application as a Windows executable.
+- 📦 **PyInstaller build** for generating the Windows executable.
+- 🧰 **Inno Setup installer script** for packaging the distribution folder into a Windows installer.
 
 ## 🚀 Which `.bat` file should you use?
 
-There are now only **two** `.bat` files in the repository, each with a clear purpose:
+There are now **three** `.bat` files in the repository, each with a clear purpose:
 
 - `RevivaX.bat`
   The **official launcher** for running the system on Windows.
@@ -49,14 +53,11 @@ There are now only **two** `.bat` files in the repository, each with a clear pur
 
 - `build.bat`
   The **build script** for packaging RevivaX with PyInstaller.
-  It is not used to run the application during development or normal usage.
+  It generates `dist\RevivaX\RevivaX.exe`.
 
-Removed as redundant:
-
-- `start.bat`
-  Redundant. It installed dependencies and started the app, but did not handle elevation robustly.
-- `RevivaxLauncher.bat`
-  Redundant legacy launcher. It elevated privileges and started the app, but did not perform the full dependency/bootstrap flow already covered by `RevivaX.bat`.
+- `build-installer.bat`
+  The **installer build script** for packaging the PyInstaller output with Inno Setup.
+  It generates `dist\installer\RevivaX-Setup.exe`.
 
 ## ⚙️ Runtime behavior
 
@@ -94,6 +95,7 @@ python main.py
 Optional:
 
 - `smartmontools` installed globally, although RevivaX can also use a local `tools/smartctl.exe` and has a Windows PowerShell fallback for SMART summaries
+- Inno Setup 6, only if you want to generate the Windows installer
 
 ## ▶️ Quick Start
 
@@ -138,6 +140,41 @@ Covered scenarios include:
 - recovery flow,
 - export flow.
 
+## 📦 Packaging
+
+### Build the executable with PyInstaller
+
+```bat
+build.bat
+```
+
+This uses the official [RevivaX.spec](RevivaX.spec) and produces:
+
+```text
+dist\RevivaX\RevivaX.exe
+```
+
+Packaging details:
+
+- static and template assets are bundled,
+- the local `tools` directory is bundled when present,
+- the executable is marked to request **administrator elevation**,
+- writable runtime data is redirected to a user-writable application directory when running as a packaged app.
+
+### Build the installer with Inno Setup
+
+```bat
+build-installer.bat
+```
+
+This requires `ISCC.exe` from **Inno Setup 6** and produces:
+
+```text
+dist\installer\RevivaX-Setup.exe
+```
+
+The repository includes the installer script in [installer.iss](installer.iss).
+
 ## 🏗️ Project Structure
 
 ```text
@@ -156,7 +193,10 @@ revivax/
 │   ├── static/
 │   └── templates/
 ├── build.bat
+├── build-installer.bat
+├── installer.iss
 ├── RevivaX.bat
+├── RevivaX.spec
 ├── main.py
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -183,15 +223,21 @@ Please read [SECURITY.md](SECURITY.md) before reporting vulnerabilities.
 - [ ] Improve frontend asset packaging to remove runtime CDN dependencies.
 - [ ] Add broader automated coverage for SMART, logs, and CSV export.
 
+## 📝 Changelog
+
+### 2026-03-20 (1.0.0)
+
+- Initial release.
+
 ## 🤝 Contributing
 
 Contributions are welcome. Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md) for the expected workflow, testing guidance, and project-specific constraints around read-only recovery behavior.
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
 
 ## 👥 Authors
 
 - [INformigados](https://github.com/informigados)
 - [Alex Brito](https://github.com/AlexBritoDEV)
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).

@@ -50,11 +50,12 @@ sys.path.insert(0, str(BASE_DIR))
 
 # Imports
 from web.app import app, init_managers
+from core.runtime_paths import get_logs_dir, get_recovered_dir, get_runtime_root
 
 # Configuração de logging
 def setup_logging():
     """Configura logging do sistema"""
-    log_dir = BASE_DIR / 'logs'
+    log_dir = get_logs_dir()
     log_dir.mkdir(exist_ok=True)
     
     log_file = log_dir / 'revivax.log'
@@ -101,10 +102,8 @@ def check_requirements():
         logger.error("Python 3.8+ é necessário")
         return False
     
-    # Verifica diretórios
-    required_dirs = ['logs', 'recovered', 'web/templates', 'web/static']
-    for dir_name in required_dirs:
-        dir_path = BASE_DIR / dir_name
+    # Verifica diretórios graváveis
+    for dir_path in (get_runtime_root(), get_logs_dir(), get_recovered_dir()):
         dir_path.mkdir(parents=True, exist_ok=True)
     
     logger.info("Requisitos verificados com sucesso")

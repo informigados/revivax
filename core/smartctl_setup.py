@@ -22,17 +22,21 @@ import subprocess
 import tempfile
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
+from .runtime_paths import get_tools_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
-TOOLS_DIR      = Path(__file__).parent.parent / 'tools'
+TOOLS_DIR      = get_tools_dir()
 SMARTCTL_NAME  = 'smartctl.exe' if os.name == 'nt' else 'smartctl'
 SMARTCTL_LOCAL = TOOLS_DIR / SMARTCTL_NAME
+SMARTCTL_BUNDLED = Path(getattr(sys, '_MEIPASS', Path(__file__).parent.parent)) / 'tools' / SMARTCTL_NAME
 
 # GitHub API
 GH_API_RELEASES = 'https://api.github.com/repos/smartmontools/smartmontools/releases/latest'
@@ -51,25 +55,31 @@ def ensure_smartctl() -> Optional[str]:
     """
     Garante que o smartctl está disponível, nesta ordem de prioridade:
 
-    1. tools/smartctl.exe  (já baixado anteriormente)
-    2. PATH do sistema     (instalação manual)
-    3. Program Files       (instalador padrão Windows)
-    4. Download automático do GitHub Releases (primeira execução)
+    1. Binário bundlado pelo PyInstaller
+    2. tools/smartctl.exe no diretório gravável da aplicação
+    3. PATH do sistema
+    4. Program Files
+    5. Download automático do GitHub Releases
 
     Retorna o caminho completo para smartctl ou None se indisponível.
     """
-    # 1. Arquivo local na pasta tools/ do projeto
+    # 1. Binário bundlado no pacote PyInstaller
+    if SMARTCTL_BUNDLED.exists() and _is_executable(str(SMARTCTL_BUNDLED)):
+        logger.info("smartctl encontrado no bundle: %s", SMARTCTL_BUNDLED)
+        return str(SMARTCTL_BUNDLED)
+
+    # 2. Arquivo local na pasta tools/ gravável da aplicação
     if SMARTCTL_LOCAL.exists() and _is_executable(str(SMARTCTL_LOCAL)):
         logger.info("smartctl encontrado em tools/: %s", SMARTCTL_LOCAL)
         return str(SMARTCTL_LOCAL)
 
-    # 2. System PATH
+    # 3. System PATH
     path_cmd = shutil.which('smartctl')
     if path_cmd and _is_executable(path_cmd):
         logger.info("smartctl encontrado no PATH: %s", path_cmd)
         return path_cmd
 
-    # 3. Locais de instalação padrão (Windows)
+    # 4. Locais de instalação padrão (Windows)
     if os.name == 'nt':
         standard_paths = [
             Path(r'C:\Program Files\smartmontools\bin\smartctl.exe'),
@@ -80,7 +90,7 @@ def ensure_smartctl() -> Optional[str]:
                 logger.info("smartctl encontrado em Program Files: %s", p)
                 return str(p)
 
-    # 4. Download automático
+    # 5. Download automático
     logger.info("smartctl não encontrado localmente. Baixando automaticamente...")
     return _download_smartctl()
 

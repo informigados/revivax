@@ -15,9 +15,10 @@ import threading
 
 from .scanner import DiskScanner, ScanResult, ScanMode, get_available_drives, get_scan_target_context
 from .carver import FileCarver, CarveResult
+from .runtime_paths import get_runtime_root
 
 logger = logging.getLogger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = get_runtime_root()
 
 
 class RecoveryStatus(Enum):

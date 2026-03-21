@@ -118,12 +118,14 @@ _SMART_CACHE_TTL_SECS: int            = 60   # Reutiliza dados por 60 s
 API_TRANSLATIONS = {
     'pt-BR': {
         'common.error_with_message': 'Erro: {message}',
+        'common.internal_error': 'Erro interno. Consulte os logs com o código {incident}.',
         'smart.unavailable': 'SMART indisponível. Instale o smartmontools para dados completos.',
         'smart.cache_cleared': 'Cache SMART invalidado.',
         'smart.unavailable_short': 'SMART indisponível',
         'smart.invalid_device_path': 'Caminho de dispositivo inválido.',
         'smart.info_unavailable': 'Informações SMART não disponíveis.',
         'scan.drive_missing': 'Drive não especificado.',
+        'scan.invalid_target': 'Alvo de varredura inválido ou não suportado.',
         'scan.system_unavailable': 'Sistema de recuperação não inicializado.',
         'scan.starting': 'Iniciando varredura...',
         'scan.completed': 'Varredura concluída: {count} arquivo(s) encontrado(s).',
@@ -156,12 +158,14 @@ API_TRANSLATIONS = {
     },
     'en': {
         'common.error_with_message': 'Error: {message}',
+        'common.internal_error': 'Internal error. Check the logs with code {incident}.',
         'smart.unavailable': 'SMART unavailable. Install smartmontools for full data.',
         'smart.cache_cleared': 'SMART cache cleared.',
         'smart.unavailable_short': 'SMART unavailable',
         'smart.invalid_device_path': 'Invalid device path.',
         'smart.info_unavailable': 'SMART information unavailable.',
         'scan.drive_missing': 'Drive not specified.',
+        'scan.invalid_target': 'Invalid or unsupported scan target.',
         'scan.system_unavailable': 'Recovery system not initialized.',
         'scan.starting': 'Starting scan...',
         'scan.completed': 'Scan completed: {count} file(s) found.',
@@ -194,12 +198,14 @@ API_TRANSLATIONS = {
     },
     'pt-PT': {
         'common.error_with_message': 'Erro: {message}',
+        'common.internal_error': 'Erro interno. Consulte os registos com o código {incident}.',
         'smart.unavailable': 'SMART indisponível. Instale o smartmontools para dados completos.',
         'smart.cache_cleared': 'Cache SMART invalidada.',
         'smart.unavailable_short': 'SMART indisponível',
         'smart.invalid_device_path': 'Caminho do dispositivo inválido.',
         'smart.info_unavailable': 'Informações SMART indisponíveis.',
         'scan.drive_missing': 'Unidade não especificada.',
+        'scan.invalid_target': 'Destino de análise inválido ou não suportado.',
         'scan.system_unavailable': 'Sistema de recuperação não inicializado.',
         'scan.starting': 'A iniciar análise...',
         'scan.completed': 'Análise concluída: {count} ficheiro(s) encontrado(s).',
@@ -232,12 +238,14 @@ API_TRANSLATIONS = {
     },
     'es': {
         'common.error_with_message': 'Error: {message}',
+        'common.internal_error': 'Error interno. Revise los registros con el código {incident}.',
         'smart.unavailable': 'SMART no disponible. Instale smartmontools para obtener todos los datos.',
         'smart.cache_cleared': 'Caché SMART invalidada.',
         'smart.unavailable_short': 'SMART no disponible',
         'smart.invalid_device_path': 'Ruta de dispositivo no válida.',
         'smart.info_unavailable': 'Información SMART no disponible.',
         'scan.drive_missing': 'Unidad no especificada.',
+        'scan.invalid_target': 'Destino de escaneo no válido o no compatible.',
         'scan.system_unavailable': 'Sistema de recuperación no inicializado.',
         'scan.starting': 'Iniciando escaneo...',
         'scan.completed': 'Escaneo completado: {count} archivo(s) encontrado(s).',
@@ -348,6 +356,66 @@ def _json_response(payload: dict, status_code: int = 200, no_store: bool = False
     return response
 
 
+def _internal_error_response(log_message: str, exc: Exception, *, no_store: bool = False):
+    incident = datetime.now().strftime('%Y%m%d%H%M%S%f')[-10:]
+    logger.exception("%s [incident=%s]", log_message, incident)
+    return _json_response(
+        {'success': False, 'error': _api_t('common.internal_error', incident=incident)},
+        500,
+        no_store=no_store,
+    )
+
+
+def _resolve_path_safe(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve(strict=False)
+    except (RuntimeError, OSError, ValueError) as exc:
+        raise ValueError("invalid path") from exc
+
+
+def _safe_child_path(root: Path, leaf_name: str) -> Optional[Path]:
+    if not leaf_name or Path(leaf_name).name != leaf_name:
+        return None
+    try:
+        root_resolved = _resolve_path_safe(root)
+        candidate = _resolve_path_safe(root_resolved / leaf_name)
+        candidate.relative_to(root_resolved)
+        return candidate
+    except (ValueError, RuntimeError, OSError):
+        return None
+
+
+def _normalize_scan_target_input(raw_path: str) -> str:
+    candidate = (raw_path or '').strip()
+    if not candidate:
+        raise ValueError("missing target")
+
+    if os.name == 'nt':
+        normalized = candidate.replace('/', '\\')
+        if re.fullmatch(r'\\\\\.\\PHYSICALDRIVE\d+', normalized, re.IGNORECASE):
+            return normalized.upper()
+        if re.fullmatch(r'[A-Za-z]:\\?', normalized):
+            return normalized[:2].upper()
+
+    path_obj = Path(candidate).expanduser()
+    if not path_obj.is_absolute():
+        raise ValueError("scan target must be absolute")
+    resolved = _resolve_path_safe(path_obj)
+    if os.name == 'nt' and str(resolved).startswith('\\\\'):
+        raise ValueError("unc path not allowed")
+    return str(resolved)
+
+
+def _normalize_output_dir_input(raw_path: str) -> Path:
+    path_obj = Path(raw_path).expanduser()
+    if not path_obj.is_absolute():
+        raise ValueError("output dir must be absolute")
+    resolved = _resolve_path_safe(path_obj)
+    if os.name == 'nt' and str(resolved).startswith('\\\\'):
+        raise ValueError("unc path not allowed")
+    return resolved
+
+
 def _reset_progress() -> None:
     global scan_progress
     with _progress_lock:
@@ -374,14 +442,14 @@ def _extract_progress_metrics(message: str) -> Dict[str, int]:
 
 def _path_is_within(path: Path, root: Path) -> bool:
     try:
-        path.resolve().relative_to(root.resolve())
+        _resolve_path_safe(path).relative_to(_resolve_path_safe(root))
         return True
     except ValueError:
         return False
 
 
 def _is_restricted_output_dir(path: Path) -> bool:
-    resolved = path.resolve()
+    resolved = _resolve_path_safe(path)
 
     if os.name == 'nt':
         if str(resolved).startswith('\\\\'):
@@ -456,8 +524,7 @@ def get_drives():
         drives = recovery_manager.get_drives() if recovery_manager else []
         return jsonify({'success': True, 'drives': drives})
     except Exception as exc:
-        logger.error("Erro ao listar drives: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao listar drives", exc)
 
 
 # ── API: Tipos de arquivo ──────────────────────────────────────────────────────
@@ -471,8 +538,7 @@ def get_file_types():
             categories.setdefault(ft['category'], []).append(ft)
         return jsonify({'success': True, 'categories': categories, 'total': len(types)})
     except Exception as exc:
-        logger.error("Erro ao obter tipos de arquivo: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao obter tipos de arquivo", exc)
 
 
 # ── API: SMART ─────────────────────────────────────────────────────────────────
@@ -496,8 +562,7 @@ def get_smart_info():
                 'message': _api_t('smart.unavailable'),
             })
     except Exception as exc:
-        logger.error("Erro ao obter informações SMART: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao obter informações SMART", exc)
 
 
 @app.route('/api/smart/refresh', methods=['POST'])
@@ -531,8 +596,7 @@ def get_smart_device(device: str):
         return jsonify({'success': False, 'error': _api_t('smart.info_unavailable')}), 404
 
     except Exception as exc:
-        logger.error("Erro ao obter SMART do dispositivo %s: %s", device, exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response(f"Erro ao obter SMART do dispositivo {device}", exc)
 
 
 # ── API: Varredura ─────────────────────────────────────────────────────────────
@@ -549,6 +613,10 @@ def start_scan():
 
         if not drive_path:
             return _json_response({'success': False, 'error': _api_t('scan.drive_missing', lang=scan_lang)}, 400, no_store=True)
+        try:
+            drive_path = _normalize_scan_target_input(drive_path)
+        except ValueError:
+            return _json_response({'success': False, 'error': _api_t('scan.invalid_target', lang=scan_lang)}, 400, no_store=True)
 
         if not recovery_manager:
             return _json_response({'success': False, 'error': _api_t('scan.system_unavailable', lang=scan_lang)}, 503, no_store=True)
@@ -610,8 +678,7 @@ def start_scan():
         }, no_store=True)
 
     except Exception as exc:
-        logger.error("Erro ao iniciar varredura: %s", exc)
-        return _json_response({'success': False, 'error': str(exc)}, 500, no_store=True)
+        return _internal_error_response("Erro ao iniciar varredura", exc, no_store=True)
 
 
 @app.route('/api/scan/progress')
@@ -634,8 +701,7 @@ def reset_scan():
         _reset_progress()
         return _json_response({'success': True}, no_store=True)
     except Exception as exc:
-        logger.error("Erro ao limpar estado da varredura: %s", exc)
-        return _json_response({'success': False, 'error': str(exc)}, 500, no_store=True)
+        return _internal_error_response("Erro ao limpar estado da varredura", exc, no_store=True)
 
 
 @app.route('/api/scan/progress/stream')
@@ -721,8 +787,7 @@ def get_scan_results():
             'created_at': job.created_at.isoformat(),
         }, no_store=True)
     except Exception as exc:
-        logger.error("Erro ao obter resultados de varredura: %s", exc)
-        return _json_response({'success': False, 'error': str(exc)}, 500, no_store=True)
+        return _internal_error_response("Erro ao obter resultados de varredura", exc, no_store=True)
 
 
 @app.route('/api/scan/stop', methods=['POST'])
@@ -736,8 +801,7 @@ def stop_scan():
             scan_progress['message'] = _api_t('scan.stopped_by_user')
         return jsonify({'success': True, 'message': _api_t('scan.stopped')})
     except Exception as exc:
-        logger.error("Erro ao interromper varredura: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao interromper varredura", exc)
 
 
 @app.route('/api/scan/pause', methods=['POST'])
@@ -750,8 +814,7 @@ def pause_scan():
             scan_progress['status'] = 'paused'
         return jsonify({'success': True, 'message': _api_t('scan.paused')})
     except Exception as exc:
-        logger.error("Erro ao pausar varredura: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao pausar varredura", exc)
 
 
 @app.route('/api/scan/resume', methods=['POST'])
@@ -764,8 +827,7 @@ def resume_scan():
             scan_progress['status'] = 'scanning'
         return jsonify({'success': True, 'message': _api_t('scan.resumed')})
     except Exception as exc:
-        logger.error("Erro ao retomar varredura: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao retomar varredura", exc)
 
 
 # ── API: Recuperação ───────────────────────────────────────────────────────────
@@ -796,8 +858,8 @@ def start_recovery():
 
         if output_dir:
             try:
-                out = Path(output_dir).resolve()
-            except Exception:
+                out = _normalize_output_dir_input(output_dir)
+            except ValueError:
                 return jsonify({'success': False, 'error': _api_t('recover.invalid_output_dir', lang=recover_lang)}), 400
 
             if _is_restricted_output_dir(out):
@@ -833,8 +895,7 @@ def start_recovery():
         return jsonify({'success': True, 'message': _api_t('recover.started', lang=recover_lang, count=len(selected))})
 
     except Exception as exc:
-        logger.error("Erro ao iniciar recuperação: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao iniciar recuperação", exc)
 
 
 @app.route('/api/recover/results')
@@ -868,8 +929,7 @@ def get_recovery_results():
             'successful': sum(1 for r in results if r['success']),
         })
     except Exception as exc:
-        logger.error("Erro ao obter resultados de recuperação: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao obter resultados de recuperação", exc)
 
 
 # ── API: Estimativa ────────────────────────────────────────────────────────────
@@ -881,11 +941,14 @@ def get_recovery_estimate():
         drive_path = (data.get('drive') or '').strip()
         if not drive_path:
             return jsonify({'success': False, 'error': _api_t('estimate.drive_missing')}), 400
+        try:
+            drive_path = _normalize_scan_target_input(drive_path)
+        except ValueError:
+            return jsonify({'success': False, 'error': _api_t('scan.invalid_target')}), 400
         estimate = recovery_manager.get_recovery_estimate(drive_path) if recovery_manager else {}
         return jsonify({'success': True, 'estimate': estimate})
     except Exception as exc:
-        logger.error("Erro ao calcular estimativa: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao calcular estimativa", exc)
 
 
 # ── API: Logs ──────────────────────────────────────────────────────────────────
@@ -907,8 +970,7 @@ def get_logs():
                     logger.debug("Falha ao ler log %s: %s", log_file.name, exc)
         return jsonify({'success': True, 'logs': logs})
     except Exception as exc:
-        logger.error("Erro ao ler logs: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao ler logs", exc)
 
 
 @app.route('/api/logs/delete', methods=['POST'])
@@ -917,18 +979,17 @@ def delete_log():
     try:
         data     = request.get_json(force=True, silent=True) or {}
         filename = (data.get('filename') or '').strip()
-        if not filename or '/' in filename or '\\' in filename or '..' in filename:
-            return jsonify({'success': False, 'error': _api_t('logs.invalid_filename')}), 400
         logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
-        log_path = logs_dir / filename
+        log_path = _safe_child_path(logs_dir, filename)
+        if log_path is None:
+            return jsonify({'success': False, 'error': _api_t('logs.invalid_filename')}), 400
         if not log_path.exists() or not log_path.is_file():
             return jsonify({'success': False, 'error': _api_t('logs.not_found')}), 404
         log_path.unlink()
         logger.info("Log excluído: %s", filename)
         return jsonify({'success': True})
     except Exception as exc:
-        logger.error("Erro ao excluir log %s: %s", data.get('filename'), exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao excluir log", exc)
 
 
 @app.route('/api/logs/clear', methods=['POST'])
@@ -953,8 +1014,7 @@ def clear_logs():
         logger.info("Logs limpos: %d arquivo(s) removido(s).", deleted)
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as exc:
-        logger.error("Erro ao limpar logs: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao limpar logs", exc)
 
 
 # ── API: Exportação ────────────────────────────────────────────────────────────
@@ -1006,8 +1066,7 @@ def export_results():
         return jsonify({'success': True, 'filename': filename, 'download_url': f'/api/download/{filename}'})
 
     except Exception as exc:
-        logger.error("Erro ao exportar: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao exportar resultados", exc)
 
 
 @app.route('/api/browse-folder', methods=['POST'])
@@ -1049,8 +1108,7 @@ def browse_folder():
         else:
             return jsonify({'success': False, 'cancelled': True})
     except Exception as exc:
-        logger.error("Erro no browse-folder: %s", exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro ao abrir seletor de pasta", exc)
 
 
 @app.route('/api/download/<filename>')
@@ -1058,16 +1116,15 @@ def download_file(filename: str):
     """Faz download de um arquivo exportado."""
     try:
         # Sanitização: apenas nome de arquivo, sem diretórios
-        if '/' in filename or '\\' in filename or '..' in filename:
-            return jsonify({'success': False, 'error': _api_t('download.invalid_filename')}), 400
         logs_dir = recovery_manager.logs_dir if recovery_manager else get_logs_dir()
-        filepath = logs_dir / filename
+        filepath = _safe_child_path(logs_dir, filename)
+        if filepath is None:
+            return jsonify({'success': False, 'error': _api_t('download.invalid_filename')}), 400
         if not filepath.exists() or not filepath.is_file():
             return jsonify({'success': False, 'error': _api_t('download.not_found')}), 404
         return send_file(filepath, as_attachment=True)
     except Exception as exc:
-        logger.error("Erro no download de %s: %s", filename, exc)
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return _internal_error_response("Erro no download de arquivo", exc)
 
 
 # ── Utilitários ────────────────────────────────────────────────────────────────

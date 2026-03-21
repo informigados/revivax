@@ -606,6 +606,38 @@ def test_cors_allows_only_local_origins():
     assert denied.headers.get("Access-Control-Allow-Origin") is None
 
 
+def test_scan_start_rejects_relative_target(tmp_path, monkeypatch):
+    manager = recovery_module.RecoveryManager(
+        output_dir=str(tmp_path / "recovered"),
+        logs_dir=str(tmp_path / "test-logs"),
+    )
+    monkeypatch.setattr(webapp, "recovery_manager", manager)
+    monkeypatch.setattr(webapp, "smart_monitor", _UnavailableSmartMonitor())
+
+    with webapp.app.test_client() as client:
+        response = client.post("/api/scan/start", json={"drive": "relative-folder", "mode": "quick"})
+
+    payload = response.get_json()
+    assert response.status_code == 400
+    assert payload["success"] is False
+
+
+def test_log_delete_rejects_path_traversal(tmp_path, monkeypatch):
+    manager = recovery_module.RecoveryManager(
+        output_dir=str(tmp_path / "recovered"),
+        logs_dir=str(tmp_path / "test-logs"),
+    )
+    monkeypatch.setattr(webapp, "recovery_manager", manager)
+    monkeypatch.setattr(webapp, "smart_monitor", _UnavailableSmartMonitor())
+
+    with webapp.app.test_client() as client:
+        response = client.post("/api/logs/delete", json={"filename": "..\\secrets.txt"})
+
+    payload = response.get_json()
+    assert response.status_code == 400
+    assert payload["success"] is False
+
+
 def test_smartctl_download_integrity_uses_digest(tmp_path):
     installer = tmp_path / "smartctl-installer.exe"
     installer.write_bytes(b"revivax-smartctl")

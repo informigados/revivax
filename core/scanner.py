@@ -4,6 +4,7 @@ Módulo de varredura de disco para recuperação de arquivos
 """
 
 import os
+import re
 import struct
 import logging
 import mmap
@@ -58,6 +59,27 @@ def _normalize_path_for_match(path: str) -> str:
     return expanded.rstrip('/') or '/'
 
 
+def _sanitize_scan_target_path(target_path: str) -> str:
+    candidate = (target_path or '').strip()
+    if not candidate:
+        raise ValueError("scan target is required")
+
+    if os.name == 'nt':
+        normalized = candidate.replace('/', '\\')
+        if re.fullmatch(r'\\\\\.\\PHYSICALDRIVE\d+', normalized, re.IGNORECASE):
+            return normalized.upper()
+        if re.fullmatch(r'[A-Za-z]:\\?', normalized):
+            return normalized[:2].upper()
+
+    path_obj = Path(candidate).expanduser()
+    if not path_obj.is_absolute():
+        raise ValueError("scan target must be absolute")
+    resolved = path_obj.resolve(strict=False)
+    if os.name == 'nt' and str(resolved).startswith('\\\\'):
+        raise ValueError("UNC scan targets are not supported")
+    return str(resolved)
+
+
 def _get_partition_for_path(target_path: str) -> Optional[Dict]:
     try:
         import psutil
@@ -93,9 +115,10 @@ def _get_partition_for_path(target_path: str) -> Optional[Dict]:
 
 
 def get_scan_target_context(target_path: str, requested_mode: Optional["ScanMode"] = None) -> Dict[str, Optional[str]]:
+    sanitized_target = _sanitize_scan_target_path(target_path)
     requested = requested_mode.value if isinstance(requested_mode, ScanMode) else str(requested_mode or ScanMode.QUICK.value)
-    if os.path.isdir(target_path):
-        partition = _get_partition_for_path(target_path) or {}
+    if os.path.isdir(sanitized_target):
+        partition = _get_partition_for_path(sanitized_target) or {}
         filesystem = (partition.get('fstype') or '').upper() or 'UNKNOWN'
         supports_deep_folder_scan = os.name == 'nt' and filesystem == 'NTFS' and bool(partition.get('device'))
         effective_mode = requested
@@ -123,8 +146,8 @@ def get_scan_target_context(target_path: str, requested_mode: Optional["ScanMode
     return {
         'source_kind': 'drive',
         'filesystem': None,
-        'volume_device': target_path,
-        'volume_mountpoint': target_path,
+        'volume_device': sanitized_target,
+        'volume_mountpoint': sanitized_target,
         'supports_deep_folder_scan': False,
         'requested_mode': requested,
         'effective_mode': requested,
@@ -436,6 +459,7 @@ class DiskScanner:
             'start_time': time.time(),
             'elapsed_time': 0
         }
+        drive_path = _sanitize_scan_target_path(drive_path)
         self.last_scan_context = get_scan_target_context(drive_path, mode)
 
         signatures = FILE_SIGNATURES

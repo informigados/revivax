@@ -147,7 +147,9 @@ Exemplos:
         version='%(prog)s 1.0.0'
     )
     
-    # Host is now strictly forced to localhost for security (SEC-02)
+    # O serviço é restrito a localhost para não expor a interface web na rede.
+    # Este é o requisito interno SEC-02: o painel só deve ser acessível pela
+    # própria máquina, salvo quando houver um mecanismo externo controlado.
     host = '127.0.0.1'
     
     parser.add_argument(

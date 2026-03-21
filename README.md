@@ -85,6 +85,19 @@ set REVIVAX_RESTORE_LAST_JOB=1
 python main.py
 ```
 
+Other supported environment variables:
+
+- `REVIVAX_RESTORE_LAST_JOB`
+  Enables automatic restoration of the last saved recovery job when set to `1`, `true`, `yes`, or `on`.
+- `REVIVAX_ALLOWED_ORIGINS`
+  Optional comma-separated allowlist for local cross-origin API access.
+  Example:
+
+```bat
+set REVIVAX_ALLOWED_ORIGINS=http://localhost:5000,http://127.0.0.1:5000
+python main.py
+```
+
 ## 🛠️ Requirements
 
 - Windows 10 or Windows 11

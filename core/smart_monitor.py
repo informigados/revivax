@@ -13,6 +13,14 @@ from datetime import datetime
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
+
+# smartctl usa um código de saída em bitmask. Os dois bits abaixo representam
+# falhas de invocação/acesso ao dispositivo e invalidam o parsing normal.
+SMARTCTL_STATUS_OK = 0
+SMARTCTL_STATUS_PARSE_ERROR = 1 << 0
+SMARTCTL_STATUS_DEVICE_OPEN_FAILED = 1 << 1
+SMARTCTL_FATAL_STATUS_MASK = SMARTCTL_STATUS_PARSE_ERROR | SMARTCTL_STATUS_DEVICE_OPEN_FAILED
 
 
 class SMARTStatus(Enum):
@@ -205,6 +213,15 @@ class SMARTMonitor:
             "Para dados completos, instale o smartmontools: https://www.smartmontools.org/"
         )
         return None
+
+    @staticmethod
+    def _has_parseable_smart_output(output: Optional[str]) -> bool:
+        return '=== START OF INFORMATION SECTION ===' in (output or '')
+
+    @staticmethod
+    def _has_fatal_smartctl_status(status: int) -> bool:
+        """Retorna True quando o smartctl falhou antes de entregar saída confiável."""
+        return bool(status & SMARTCTL_FATAL_STATUS_MASK)
     
     def _command_exists(self, cmd: str) -> bool:
         """Verifica se comando existe"""
@@ -334,8 +351,8 @@ class SMARTMonitor:
                 timeout=30
             )
             
-            has_parseable_output = '=== START OF INFORMATION SECTION ===' in (result.stdout or '')
-            if result.returncode not in [0, 4, 8, 16, 32, 64, 128, 192] and not has_parseable_output:
+            has_parseable_output = self._has_parseable_smart_output(result.stdout)
+            if self._has_fatal_smartctl_status(result.returncode) and not has_parseable_output:
                 logger.error(f"smartctl error on {device}: {result.stderr}")
                 return None
             
@@ -701,7 +718,7 @@ class SMARTMonitor:
             )
             out_disk = subprocess.check_output(
                 ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_disk],
-                text=True, creationflags=0x08000000, timeout=15
+                text=True, creationflags=CREATE_NO_WINDOW, timeout=15
             )
 
             # ── Query 2: tipo de mídia via Get-PhysicalDisk ───────────────────
@@ -713,7 +730,7 @@ class SMARTMonitor:
             try:
                 out_phys = subprocess.check_output(
                     ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_phys],
-                    text=True, creationflags=0x08000000, timeout=10
+                    text=True, creationflags=CREATE_NO_WINDOW, timeout=10
                 )
             except Exception:
                 out_phys = ""
@@ -735,7 +752,7 @@ class SMARTMonitor:
             try:
                 out_smart = subprocess.check_output(
                     ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_smart],
-                    text=True, creationflags=0x08000000, timeout=20
+                    text=True, creationflags=CREATE_NO_WINDOW, timeout=20
                 )
             except Exception:
                 out_smart = ""
@@ -752,7 +769,7 @@ class SMARTMonitor:
             try:
                 out_vol = subprocess.check_output(
                     ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_vol],
-                    text=True, creationflags=0x08000000, timeout=12
+                    text=True, creationflags=CREATE_NO_WINDOW, timeout=12
                 )
             except Exception:
                 out_vol = ""
@@ -932,7 +949,7 @@ class SMARTMonitor:
         try:
             output = subprocess.check_output(
                 ['wmic', 'diskdrive', 'get', 'DeviceID,Model,Size,Status'],
-                text=True, creationflags=0x08000000, timeout=10
+                text=True, creationflags=CREATE_NO_WINDOW, timeout=10
             )
             drives_info = []
             healthy = warning = critical = unknown = 0

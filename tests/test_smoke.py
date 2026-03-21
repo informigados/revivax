@@ -597,10 +597,12 @@ def test_security_headers_are_present():
 
 def test_cors_allows_only_local_origins():
     with webapp.app.test_client() as client:
-        allowed = client.get("/api/file-types", headers={"Origin": "http://127.0.0.1:9999"})
+        allowed = client.get("/api/file-types", headers={"Origin": "http://127.0.0.1:5000"})
+        denied_local = client.get("/api/file-types", headers={"Origin": "http://127.0.0.1:9999"})
         denied = client.get("/api/file-types", headers={"Origin": "http://evil.example"})
 
-    assert allowed.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:9999"
+    assert allowed.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:5000"
+    assert denied_local.headers.get("Access-Control-Allow-Origin") is None
     assert denied.headers.get("Access-Control-Allow-Origin") is None
 
 

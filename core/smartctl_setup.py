@@ -37,6 +37,7 @@ TOOLS_DIR      = get_tools_dir()
 SMARTCTL_NAME  = 'smartctl.exe' if os.name == 'nt' else 'smartctl'
 SMARTCTL_LOCAL = TOOLS_DIR / SMARTCTL_NAME
 SMARTCTL_BUNDLED = Path(getattr(sys, '_MEIPASS', Path(__file__).parent.parent)) / 'tools' / SMARTCTL_NAME
+CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
 
 # GitHub API
 GH_API_RELEASES = 'https://api.github.com/repos/smartmontools/smartmontools/releases/latest'
@@ -101,7 +102,7 @@ def _is_executable(path: str) -> bool:
         r = subprocess.run(
             [path, '--version'],
             capture_output=True, timeout=8, check=False,
-            creationflags=0x08000000 if os.name == 'nt' else 0,
+            creationflags=CREATE_NO_WINDOW,
         )
         return r.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -173,7 +174,7 @@ def _download_smartctl() -> Optional[str]:
         result = subprocess.run(
             [str(installer_path), '/S', f'/D={install_dir}'],
             timeout=120, check=False,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            creationflags=CREATE_NO_WINDOW,
         )
         if result.returncode not in (0, 1):
             logger.warning("Instalador retornou código %d (pode ser normal).", result.returncode)
@@ -255,7 +256,7 @@ def _verify_authenticode_signature(file_path: Path) -> bool:
             text=True,
             timeout=20,
             check=False,
-            creationflags=0x08000000 if os.name == 'nt' else 0,
+            creationflags=CREATE_NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.error("Falha ao validar assinatura Authenticode de %s: %s", file_path, exc)

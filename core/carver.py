@@ -17,6 +17,10 @@ from .scanner import DiskScanner, ScanResult
 
 logger = logging.getLogger(__name__)
 
+# Mantido alinhado ao scanner para leituras sequenciais mais consistentes
+# durante carving em dispositivos/imagens grandes.
+CARVER_CHUNK_SIZE = 16 * 1024 * 1024
+
 
 @dataclass
 class CarveResult:
@@ -175,7 +179,6 @@ class FileCarver:
                 drive.seek(scan_result.offset)
                 
                 # Lê os dados em chunks para não estourar a RAM
-                CHUNK_SIZE = 4 * 1024 * 1024  # 4MB por chunk
                 bytes_read = 0
                 md5 = hashlib.md5()
                 sha256 = hashlib.sha256()
@@ -192,7 +195,7 @@ class FileCarver:
                             raise Exception("Operação cancelada pelo usuário")
                         self._check_pause()
                         
-                        chunk_to_read = min(CHUNK_SIZE, scan_result.size - bytes_read)
+                        chunk_to_read = min(CARVER_CHUNK_SIZE, scan_result.size - bytes_read)
                         chunk = drive.read(chunk_to_read)
                         
                         if not chunk:
@@ -379,7 +382,7 @@ class FileCarver:
                     drive.seek(int(lcn) * cluster_size)
                     remaining_in_run = bytes_to_consume
                     while remaining_in_run > 0:
-                        chunk = drive.read(min(4 * 1024 * 1024, remaining_in_run))
+                        chunk = drive.read(min(CARVER_CHUNK_SIZE, remaining_in_run))
                         if not chunk:
                             break
                         out_f.write(chunk)

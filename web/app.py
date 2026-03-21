@@ -7,13 +7,15 @@ thread-lock no scan_progress, SMART com cache TTL, segurança melhorada.
 import os
 import re
 import sys
+import csv
 import json
 import logging
+import subprocess as sp
 import threading
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from flask import Flask, Response, render_template, jsonify, request, send_file
 from flask_cors import CORS
@@ -29,7 +31,27 @@ from core.runtime_paths import get_logs_dir
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
-LOCAL_ORIGIN_RE = re.compile(r'^https?://(?:127\.0\.0\.1|localhost)(?::\d+)?$', re.IGNORECASE)
+
+
+def _get_allowed_local_origins() -> List[str]:
+    """
+    Define uma allowlist explícita de origens locais para CORS.
+
+    O fluxo padrão da UI é same-origin e não depende de CORS. Esta lista só
+    libera integrações locais controladas.
+    """
+    configured = os.environ.get('REVIVAX_ALLOWED_ORIGINS', '').strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(',') if origin.strip()]
+    return [
+        'http://127.0.0.1:5000',
+        'http://localhost:5000',
+        'http://127.0.0.1:8000',
+        'http://localhost:8000',
+    ]
+
+
+LOCAL_ALLOWED_ORIGINS = _get_allowed_local_origins()
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 def resource_path(relative_path: str) -> str:
@@ -46,8 +68,8 @@ app = Flask(
     static_folder=resource_path('static'),
 )
 
-# CORS restrito: apenas origem local para segurança
-CORS(app, resources={r'/api/*': {'origins': LOCAL_ORIGIN_RE}})
+# CORS restrito: apenas origens locais explicitamente permitidas.
+CORS(app, resources={r'/api/*': {'origins': LOCAL_ALLOWED_ORIGINS}})
 
 # Configurações básicas
 app.config['SECRET_KEY']          = os.environ.get('REVIVAX_SECRET', 'revivax-local-secret-key')
@@ -539,7 +561,9 @@ def start_scan():
             scan_progress['total']   = 100
             scan_progress['job_id']  = scan_job_id
 
-        # Bloqueia a leitura do cache do Job anterior antes do start real na Thread
+        # Limpa apenas o job ativo em memória para que o novo scan não herde
+        # resultados antigos. O ponteiro persistido em disco é preservado aqui
+        # para auditoria e só é removido num reset explícito do usuário.
         recovery_manager.reset_current_job(clear_persisted_state=False)
 
         recovery_manager.set_callbacks(progress_callback, status_callback)
@@ -965,9 +989,8 @@ def export_results():
         elif fmt == 'csv':
             filename = f'export_{ts}.csv'
             filepath = export_dir / filename
-            import csv as _csv
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-                w = _csv.writer(f)
+                w = csv.writer(f)
                 w.writerow([
                     _api_t('export.csv.offset'),
                     _api_t('export.csv.size'),
@@ -997,8 +1020,6 @@ def browse_folder():
         if os.name != 'nt':
             return jsonify({'success': False, 'error': _api_t('browse.windows_only')}), 400
 
-        import subprocess as sp
-        import sys
         browse_title = _api_t('browse.dialog_title')
         
         # Script usa tkinter que é mais robusto e não dá timeout no Waitress como o Forms via PS

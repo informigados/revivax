@@ -1,6 +1,10 @@
 """
 RevivaX - Recovery Module
 Módulo de recuperação de arquivos com gerenciamento completo
+
+Variáveis de ambiente suportadas:
+- ``REVIVAX_RESTORE_LAST_JOB``: quando definida como ``1``, ``true``,
+  ``yes`` ou ``on``, habilita a restauração automática do último job salvo.
 """
 
 import os
@@ -100,7 +104,12 @@ class RecoveryManager:
 
     @staticmethod
     def _should_restore_last_job() -> bool:
-        """Restauração do último job só ocorre quando explicitamente habilitada."""
+        """
+        Verifica se a restauração automática do último job está habilitada.
+
+        O comportamento é opt-in e controlado por ``REVIVAX_RESTORE_LAST_JOB``.
+        Apenas valores afirmativos explícitos ativam a restauração.
+        """
         value = os.environ.get('REVIVAX_RESTORE_LAST_JOB', '').strip().lower()
         return value in {'1', 'true', 'yes', 'on'}
     

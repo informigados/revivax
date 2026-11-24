@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/backend-Flask-000000?logo=flask&logoColor=white" alt="Flask">
   <a href="https://github.com/informigados/revivax/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security-policy-2563eb" alt="Security Policy"></a>
   <a href="https://github.com/informigados/revivax/blob/main/CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-f59e0b" alt="Contributing"></a>
+  <a href="https://deepwiki.com/informigados/revivax"><img src="docs/assets/deepwiki.svg" alt="DeepWiki"></a>
 </p>
 
 ## 🧭 Overview

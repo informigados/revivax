@@ -248,8 +248,8 @@ Contributions are welcome. Before opening a pull request, read [CONTRIBUTING.md]
 
 ## 👥 Authors
 
-- [INformigados](https://github.com/informigados)
 - [Alex Brito](https://github.com/alexbritodev)
+- [INformigados](https://github.com/informigados)
 
 ## 📄 License
 
